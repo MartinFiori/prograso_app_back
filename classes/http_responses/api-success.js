@@ -1,11 +1,17 @@
 const { OK } = require('../../constants/http-status-codes')
 
 class ApiSuccess {
-  constructor({ data, statusCode = OK, description = 'OK' }) {
+  constructor({ data, statusCode = OK, description = 'OK', pagination, meta }) {
     this.data = data;
     this.statusCode = statusCode;
-    this.description;
+    this.description = description;
     this.status = 'success'
+    if (pagination !== undefined) {
+      this.pagination = pagination
+    }
+    if (meta !== undefined) {
+      this.meta = meta
+    }
   }
   status(statusCode) {
     this.statusCode = statusCode
