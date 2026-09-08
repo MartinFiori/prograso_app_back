@@ -1,0 +1,12 @@
+const eventStatusesService = require('../services/event-statuses.service')
+const ApiSuccess = require('../classes/http_responses/api-success')
+
+async function list(_req, res) {
+  const data = await eventStatusesService.list()
+  const body = new ApiSuccess({ data })
+  res.status(body.statusCode).json(body)
+}
+
+module.exports = {
+  list,
+}
