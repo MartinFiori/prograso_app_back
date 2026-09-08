@@ -1,0 +1,17 @@
+{
+  "feature_id": "001-frontend-project-context",
+  "status": "DONE",
+  "spec_revision": 1,
+  "plan_revision": 1,
+  "approval": {
+    "status": "APPROVED",
+    "spec_revision": 1,
+    "plan_revision": 1,
+    "user_text": "si",
+    "response_date": "2026-09-08"
+  },
+  "baseline_revision": "9e77422a4eb80c7d7df3533dbe57a860b9892ab4",
+  "last_verified_revision": "9e77422a4eb80c7d7df3533dbe57a860b9892ab4",
+  "blocking_issues": [],
+  "next_action": "Ninguna. Feature cerrada. No hay commit automático."
+}
