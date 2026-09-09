@@ -1,6 +1,6 @@
-const mapSupabaseError = require('../utils/map-supabase-error')
-const errorCodes = require('../constants/error-codes')
-const httpStatusCodes = require('../constants/http-status-codes')
+const mapSupabaseError = require('../src/utils/map-supabase-error')
+const errorCodes = require('../src/constants/error-codes')
+const httpStatusCodes = require('../src/constants/http-status-codes')
 
 describe('mapSupabaseError', () => {
   it('maps unique violations to a stable 409 code', () => {
@@ -21,7 +21,13 @@ describe('mapSupabaseError', () => {
     })
 
     expect(err.statusCode).toBe(httpStatusCodes.INTERNAL_SERVER)
-    expect(err.errorCode).toBe(errorCodes.UNEXPECTED_ERROR)
+    expect(err.errorCode).toBe(errorCodes.DB_UNKNOWN_ERROR)
+    expect(err.data).toEqual({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "other_table_unique"',
+      details: null,
+      hint: null,
+    })
   })
 
   it('maps event category foreign key violations', () => {
@@ -64,16 +70,36 @@ describe('mapSupabaseError', () => {
     expect(err.errorCode).toBe(errorCodes.INVALID_EVENT_CAPACITY)
   })
 
-  it('does not expose unexpected supabase errors', () => {
+  it('maps unmapped postgrest errors to DB_UNKNOWN_ERROR with payload', () => {
     const err = mapSupabaseError({
       code: '42P01',
       message: 'relation "event_categories" does not exist',
+      details: 'schema cache',
+      hint: 'reload schema',
     })
 
     expect(err.statusCode).toBe(httpStatusCodes.INTERNAL_SERVER)
-    expect(err.errorCode).toBe(errorCodes.UNEXPECTED_ERROR)
+    expect(err.errorCode).toBe(errorCodes.DB_UNKNOWN_ERROR)
+    expect(err.description).toBe('relation "event_categories" does not exist')
+    expect(err.data).toEqual({
+      code: '42P01',
+      message: 'relation "event_categories" does not exist',
+      details: 'schema cache',
+      hint: 'reload schema',
+    })
+  })
+
+  it('uses null for missing postgrest fields on unmapped errors', () => {
+    const err = mapSupabaseError({})
+
+    expect(err.errorCode).toBe(errorCodes.DB_UNKNOWN_ERROR)
     expect(err.description).toBe('An unexpected error occurred')
-    expect(err.data).toBeUndefined()
+    expect(err.data).toEqual({
+      code: null,
+      message: null,
+      details: null,
+      hint: null,
+    })
   })
 
   it('maps registration business exceptions without leaking sql', () => {
@@ -117,5 +143,48 @@ describe('mapSupabaseError', () => {
 
     expect(err.statusCode).toBe(httpStatusCodes.UNPROCESSABLE_ENTITY)
     expect(err.errorCode).toBe(errorCodes.INVALID_REGISTRATION_STATUS)
+  })
+
+  it('maps event registration forbidden with blocked_until and without a reason', () => {
+    const err = mapSupabaseError({
+      code: 'P0001',
+      message: 'event_registration_forbidden',
+      details: '2026-12-01T00:00:00+00',
+    })
+
+    expect(err.statusCode).toBe(httpStatusCodes.FORBIDDEN)
+    expect(err.errorCode).toBe(errorCodes.EVENT_REGISTRATION_FORBIDDEN)
+    expect(err.data).toEqual({ blocked_until: '2026-12-01T00:00:00+00' })
+    expect(err.description).not.toMatch(/reason/i)
+  })
+
+  it('maps invalid_event_capacity exceptions from RPC', () => {
+    const err = mapSupabaseError({
+      code: 'P0001',
+      message: 'invalid_event_capacity',
+    })
+
+    expect(err.statusCode).toBe(httpStatusCodes.BAD_REQUEST)
+    expect(err.errorCode).toBe(errorCodes.INVALID_EVENT_CAPACITY)
+  })
+
+  it('maps serialization failures to event_update_conflict', () => {
+    const err = mapSupabaseError({
+      code: '40001',
+      message: 'could not serialize access due to concurrent update',
+    })
+
+    expect(err.statusCode).toBe(httpStatusCodes.CONFLICT)
+    expect(err.errorCode).toBe(errorCodes.EVENT_UPDATE_CONFLICT)
+  })
+
+  it('maps deadlocks to event_update_conflict', () => {
+    const err = mapSupabaseError({
+      code: '40P01',
+      message: 'deadlock detected',
+    })
+
+    expect(err.statusCode).toBe(httpStatusCodes.CONFLICT)
+    expect(err.errorCode).toBe(errorCodes.EVENT_UPDATE_CONFLICT)
   })
 })

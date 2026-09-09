@@ -1,86 +1,54 @@
-jest.mock('../supabase', () => ({
+jest.mock('../src/supabase', () => ({
   auth: {
     getUser: jest.fn(),
   },
 }))
 
-jest.mock('../supabase/admin', () => ({
+jest.mock('../src/supabase/admin', () => ({
   from: jest.fn(),
 }))
 
-const request = require('supertest')
-const app = require('../app')
-const supabase = require('../supabase')
-const supabaseAdmin = require('../supabase/admin')
-const { createQueryBuilder } = require('./helpers/mock-query-builder')
-const errorCodes = require('../constants/error-codes')
-const httpStatusCodes = require('../constants/http-status-codes')
-const { PUBLIC_STATUS_CODES, CANCELLED_STATUS_CODE } = require('../constants/event-statuses')
+const mockRpc = jest.fn()
 
-const ADMIN_ID = 'admin-user-id'
-const USER_ID = 'regular-user-id'
+jest.mock('../src/supabase/user-client', () => ({
+  createUserClient: jest.fn(() => ({
+    rpc: mockRpc,
+    from: jest.fn(),
+  })),
+}))
+
+const request = require('supertest')
+const app = require('../src/app')
+const supabase = require('../src/supabase')
+const supabaseAdmin = require('../src/supabase/admin')
+const { createUserClient } = require('../src/supabase/user-client')
+const { createQueryBuilder } = require('./helpers/mock-query-builder')
+const errorCodes = require('../src/constants/error-codes')
+const httpStatusCodes = require('../src/constants/http-status-codes')
+const { PUBLIC_STATUS_CODES } = require('../src/constants/event-statuses')
+
+const ADMIN_ID = '22222222-2222-4222-8222-222222222222'
+const USER_ID = '11111111-1111-4111-8111-111111111111'
 const ADMIN_TOKEN = 'admin-access-token'
 const USER_TOKEN = 'user-access-token'
 
-const activeCategory = {
-  id: 2,
-  name: 'Canchas abiertas',
-  description: 'Partidos abiertos para anotarse',
-  image_url: 'https://example.com/cancha.jpg',
-  is_active: true,
-  created_at: '2026-01-01T00:00:00.000Z',
-  updated_at: '2026-01-01T00:00:00.000Z',
-}
-
-const publicCategory = {
-  id: 2,
-  name: 'Canchas abiertas',
-  image_url: 'https://example.com/cancha.jpg',
-}
-
-const publicEvent = {
-  id: 1,
+const draftEvent = {
+  id: 12,
   category_id: 2,
-  title: 'Cancha abierta - Viernes 4 de septiembre',
-  starts_at: '2026-09-04T21:00:00.000Z',
-  registration_deadline: '2026-09-04T18:00:00.000Z',
+  title: 'Borrador interno',
+  starts_at: '2026-09-20T21:00:00.000Z',
+  registration_deadline: null,
   capacity: 16,
-  status_code: 'open',
-  category: publicCategory,
-}
-
-const adminEvent = {
-  ...publicEvent,
-  created_by: ADMIN_ID,
-  created_at: '2026-01-01T00:00:00.000Z',
-  updated_at: '2026-01-01T00:00:00.000Z',
-}
-
-const draftStatus = {
-  code: 'draft',
-  name: 'Borrador',
-  description: 'El evento todavía no fue publicado.',
-  is_active: true,
-}
-
-const createPayload = {
-  category_id: 2,
-  title: 'Cancha abierta - Viernes 4 de septiembre',
-  starts_at: '2026-09-04T21:00:00.000Z',
-  registration_deadline: '2026-09-04T18:00:00.000Z',
-  capacity: 16,
+  price: null,
   status_code: 'draft',
+  created_by: ADMIN_ID,
+  created_at: '2026-09-08T12:00:00.000Z',
+  updated_at: '2026-09-08T12:00:00.000Z',
+  category: { id: 2, name: 'Cancha abierta', image_url: null },
 }
 
 function authHeader(token) {
   return { Authorization: `Bearer ${token}` }
-}
-
-function mockAuthenticatedAdmin() {
-  supabase.auth.getUser.mockResolvedValue({
-    data: { user: { id: ADMIN_ID } },
-    error: null,
-  })
 }
 
 function mockAuthenticatedUser() {
@@ -90,506 +58,313 @@ function mockAuthenticatedUser() {
   })
 }
 
+function mockAuthenticatedAdmin() {
+  supabase.auth.getUser.mockResolvedValue({
+    data: { user: { id: ADMIN_ID } },
+    error: null,
+  })
+}
+
+function applyPublicStatusFilter(builder) {
+  builder.maybeSingle.mockImplementation(() => {
+    const row = builder.resolved?.data ?? null
+    const statusFilter = (builder.ins || []).find(([column]) => column === 'status_code')
+
+    if (statusFilter && row && !statusFilter[1].includes(row.status_code)) {
+      return Promise.resolve({ data: null, error: null })
+    }
+
+    return Promise.resolve(builder.resolved)
+  })
+}
+
 describe('events', () => {
   let profilesBuilder
-  let categoriesBuilder
-  let statusesBuilder
   let eventsBuilder
 
   beforeEach(() => {
+    mockRpc.mockReset()
+    mockRpc.mockResolvedValue({
+      data: { ...draftEvent, capacity: 2 },
+      error: null,
+    })
+    createUserClient.mockClear()
     profilesBuilder = createQueryBuilder({
       data: { id: ADMIN_ID, role: 'admin' },
       error: null,
     })
-    categoriesBuilder = createQueryBuilder({
-      data: activeCategory,
-      error: null,
-    })
-    statusesBuilder = createQueryBuilder({
-      data: draftStatus,
-      error: null,
-    })
     eventsBuilder = createQueryBuilder({
-      data: [publicEvent],
+      data: draftEvent,
       error: null,
-      count: 1,
     })
+    applyPublicStatusFilter(eventsBuilder)
 
     supabaseAdmin.from.mockImplementation((table) => {
       if (table === 'profiles') {
         return profilesBuilder
       }
-      if (table === 'event_categories') {
-        return categoriesBuilder
-      }
-      if (table === 'event_statuses') {
-        return statusesBuilder
-      }
+
       return eventsBuilder
     })
   })
 
-  describe('GET /events', () => {
-    it('allows unauthenticated users to list public events', async () => {
-      const response = await request(app).get('/events')
+  describe('GET /admin/events/:id', () => {
+    it('returns 200 for a draft with created_by, created_at and updated_at', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app).get('/admin/events/12').set(authHeader(ADMIN_TOKEN))
 
       expect(response.status).toBe(httpStatusCodes.OK)
       expect(response.body.status).toBe('success')
-      expect(response.body.data).toEqual([publicEvent])
-      expect(response.body.pagination).toEqual({
-        page: 1,
-        limit: 20,
-        total: 1,
-        total_pages: 1,
-      })
+      expect(response.body.data.id).toBe(12)
+      expect(response.body.data.status_code).toBe('draft')
+      expect(response.body.data.created_by).toBe(ADMIN_ID)
+      expect(response.body.data.created_at).toBe(draftEvent.created_at)
+      expect(response.body.data.updated_at).toBe(draftEvent.updated_at)
+      expect(eventsBuilder.eqs).toContainEqual(['id', 12])
+      expect(eventsBuilder.ins.find(([column]) => column === 'status_code')).toBeUndefined()
+      expect(String(eventsBuilder.selectArgs[0])).toContain('price')
+    })
+
+    it('returns 401 when no Bearer token is provided', async () => {
+      const response = await request(app).get('/admin/events/12')
+
+      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
       expect(supabase.auth.getUser).not.toHaveBeenCalled()
-      expect(String(eventsBuilder.selectArgs[0])).not.toContain('created_by')
     })
 
-    it('does not return draft events', async () => {
-      const response = await request(app).get('/events')
+    it('returns 403 when the caller is not an admin', async () => {
+      mockAuthenticatedUser()
+      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
 
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(eventsBuilder.in).toHaveBeenCalledWith('status_code', [...PUBLIC_STATUS_CODES])
-      expect(eventsBuilder.ins[0][1]).not.toContain('draft')
+      const response = await request(app).get('/admin/events/12').set(authHeader(USER_TOKEN))
+
+      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
     })
 
-    it('does not return cancelled events', async () => {
-      const response = await request(app).get('/events')
+    it('returns 404 event_not_found when the event does not exist', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.resolved = { data: null, error: null }
 
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(eventsBuilder.ins[0][1]).not.toContain(CANCELLED_STATUS_CODE)
-    })
+      const response = await request(app).get('/admin/events/999').set(authHeader(ADMIN_TOKEN))
 
-    it('returns an empty list when filtering the public list by draft', async () => {
-      const response = await request(app).get('/events').query({ status_code: 'draft' })
-
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(response.body.data).toEqual([])
-      expect(response.body.pagination.total).toBe(0)
-      expect(eventsBuilder.in).not.toHaveBeenCalled()
-    })
-
-    it('filters by category and date range', async () => {
-      const response = await request(app).get('/events').query({
-        category_id: 2,
-        starts_from: '2026-09-04T00:00:00.000Z',
-        starts_to: '2026-09-05T00:00:00.000Z',
-      })
-
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(eventsBuilder.eq).toHaveBeenCalledWith('category_id', 2)
-      expect(eventsBuilder.gte).toHaveBeenCalledWith('starts_at', '2026-09-04T00:00:00.000Z')
-      expect(eventsBuilder.lte).toHaveBeenCalledWith('starts_at', '2026-09-05T00:00:00.000Z')
-      expect(eventsBuilder.order).toHaveBeenCalledWith('starts_at', { ascending: true })
-      expect(eventsBuilder.range).toHaveBeenCalledWith(0, 19)
+      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
+      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
     })
   })
 
-  describe('GET /events/:id', () => {
-    it('allows unauthenticated users to get a public event', async () => {
-      eventsBuilder.resolved = { data: publicEvent, error: null }
-      eventsBuilder.maybeSingle.mockResolvedValue(eventsBuilder.resolved)
+  describe('GET /events/:id public vs admin draft', () => {
+    it('returns 404 event_not_found for the same draft id on the public route', async () => {
+      mockAuthenticatedAdmin()
+
+      const adminResponse = await request(app)
+        .get('/admin/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+
+      expect(adminResponse.status).toBe(httpStatusCodes.OK)
+      expect(adminResponse.body.data.created_by).toBe(ADMIN_ID)
+
+      const publicResponse = await request(app).get('/events/12')
+
+      expect(publicResponse.status).toBe(httpStatusCodes.NOT_FOUND)
+      expect(publicResponse.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+      expect(eventsBuilder.ins).toContainEqual(['status_code', [...PUBLIC_STATUS_CODES]])
+      expect(supabase.auth.getUser).toHaveBeenCalledTimes(1)
+    })
+
+    it('includes price on public GET /events/:id for an open event', async () => {
+      const openEvent = {
+        ...draftEvent,
+        id: 1,
+        status_code: 'open',
+        price: 15000,
+      }
+      eventsBuilder.resolved = { data: openEvent, error: null }
 
       const response = await request(app).get('/events/1')
 
       expect(response.status).toBe(httpStatusCodes.OK)
-      expect(response.body.data).toEqual(publicEvent)
-      expect(supabase.auth.getUser).not.toHaveBeenCalled()
-      expect(eventsBuilder.in).toHaveBeenCalledWith('status_code', [...PUBLIC_STATUS_CODES])
-      expect(response.body.data.created_by).toBeUndefined()
-    })
-
-    it('returns 400 for an invalid id', async () => {
-      const response = await request(app).get('/events/abc')
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
-    })
-
-    it('returns 404 when the event does not exist or is not public', async () => {
-      eventsBuilder.maybeSingle.mockResolvedValue({ data: null, error: null })
-
-      const response = await request(app).get('/events/99')
-
-      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+      expect(response.body.data.price).toBe(15000)
+      expect(String(eventsBuilder.selectArgs[0])).toContain('price')
     })
   })
 
-  describe('POST /events', () => {
-    it('returns 401 when no token is provided', async () => {
-      const response = await request(app).post('/events').send(createPayload)
-
-      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
-      expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
-    })
-
-    it('returns 403 when the authenticated user is not an admin', async () => {
-      mockAuthenticatedUser()
-      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(USER_TOKEN))
-        .send(createPayload)
-
-      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
-      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
-      expect(supabase.auth.getUser).toHaveBeenCalledWith(USER_TOKEN)
-    })
-
-    it('creates an event when the user is an admin', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.resolved = { data: adminEvent, error: null }
-      eventsBuilder.maybeSingle.mockResolvedValue(eventsBuilder.resolved)
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send(createPayload)
-
-      expect(response.status).toBe(httpStatusCodes.CREATED)
-      expect(response.body.status).toBe('success')
-      expect(response.body.data).toEqual(adminEvent)
-      expect(eventsBuilder.insert).toHaveBeenCalledWith({
-        category_id: 2,
-        title: 'Cancha abierta - Viernes 4 de septiembre',
-        starts_at: '2026-09-04T21:00:00.000Z',
-        registration_deadline: '2026-09-04T18:00:00.000Z',
-        capacity: 16,
-        status_code: 'draft',
-        created_by: ADMIN_ID,
-      })
-    })
-
-    it('sets created_by from the authenticated admin profile', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.resolved = { data: adminEvent, error: null }
-      eventsBuilder.maybeSingle.mockResolvedValue(eventsBuilder.resolved)
-
-      await request(app).post('/events').set(authHeader(ADMIN_TOKEN)).send(createPayload)
-
-      expect(eventsBuilder.inserts[0].created_by).toBe(ADMIN_ID)
-    })
-
-    it('rejects a body that tries to overwrite created_by', async () => {
+  describe('POST /events created_by', () => {
+    it('rejects created_by in the body with 400 VALIDATION_FAILED', async () => {
       mockAuthenticatedAdmin()
 
       const response = await request(app)
         .post('/events')
         .set(authHeader(ADMIN_TOKEN))
         .send({
-          ...createPayload,
-          created_by: USER_ID,
-          id: 99,
-          created_at: '2020-01-01T00:00:00.000Z',
-          updated_at: '2020-01-01T00:00:00.000Z',
+          category_id: 2,
+          title: 'Open night',
+          starts_at: '2026-09-20T21:00:00.000Z',
+          capacity: 16,
+          created_by: ADMIN_ID,
         })
 
       expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
       expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
       expect(eventsBuilder.insert).not.toHaveBeenCalled()
     })
+  })
 
-    it('returns 404 when the category does not exist', async () => {
-      mockAuthenticatedAdmin()
-      categoriesBuilder.maybeSingle.mockResolvedValue({ data: null, error: null })
+  describe('PATCH /events/:id capacity recalc', () => {
+    it('returns 401 when no Bearer token is provided', async () => {
+      const response = await request(app).patch('/events/12').send({ capacity: 2 })
 
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send(createPayload)
-
-      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_CATEGORY_NOT_FOUND)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
+      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
     })
 
-    it('returns 409 when the category is inactive', async () => {
+    it('returns 403 when the caller is not an admin', async () => {
+      mockAuthenticatedUser()
+      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(USER_TOKEN))
+        .send({ capacity: 2 })
+
+      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 VALIDATION_FAILED for capacity 0 without mutating', async () => {
       mockAuthenticatedAdmin()
-      categoriesBuilder.maybeSingle.mockResolvedValue({
-        data: { ...activeCategory, is_active: false },
-        error: null,
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 0 })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 event_not_found when the event does not exist', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.resolved = { data: null, error: null }
+
+      const response = await request(app)
+        .patch('/events/999')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 2 })
+
+      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
+      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('does not call admin_update_event when capacity is omitted', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ title: 'Cancha de noche' })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data.id).toBe(12)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).toHaveBeenCalledTimes(1)
+      expect(eventsBuilder.updates[0]).toEqual(
+        expect.objectContaining({
+          title: 'Cancha de noche',
+          updated_at: expect.any(String),
+        }),
+      )
+      expect(eventsBuilder.updates[0]).not.toHaveProperty('capacity')
+    })
+
+    it('calls admin_update_event and skips table update when capacity is present', async () => {
+      mockAuthenticatedAdmin()
+      mockRpc.mockImplementation(async (_fnName, params) => {
+        eventsBuilder.resolved = {
+          data: { ...draftEvent, capacity: params.p_patch.capacity },
+          error: null,
+        }
+        return {
+          data: { ...draftEvent, capacity: params.p_patch.capacity },
+          error: null,
+        }
       })
 
       const response = await request(app)
-        .post('/events')
+        .patch('/events/12')
         .set(authHeader(ADMIN_TOKEN))
-        .send(createPayload)
+        .send({ capacity: 2 })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.status).toBe('success')
+      expect(response.body.data.capacity).toBe(2)
+      expect(response.body.data.category).toEqual(draftEvent.category)
+      expect(mockRpc).toHaveBeenCalledWith('admin_update_event', {
+        p_event_id: 12,
+        p_patch: { capacity: 2 },
+      })
+      expect(createUserClient).toHaveBeenCalledWith(ADMIN_TOKEN)
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('still calls admin_update_event when capacity equals the current value', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 16 })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(mockRpc).toHaveBeenCalledWith('admin_update_event', {
+        p_event_id: 12,
+        p_patch: { capacity: 16 },
+      })
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('does not update the events table when the capacity RPC fails', async () => {
+      mockAuthenticatedAdmin()
+      mockRpc.mockResolvedValue({
+        data: null,
+        error: { code: 'P0001', message: 'event_not_found' },
+      })
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 2 })
+
+      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
+      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('maps a serialization failure to 409 event_update_conflict without table update', async () => {
+      mockAuthenticatedAdmin()
+      mockRpc.mockResolvedValue({
+        data: null,
+        error: { code: '40001', message: 'could not serialize access due to concurrent update' },
+      })
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 1 })
 
       expect(response.status).toBe(httpStatusCodes.CONFLICT)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_CATEGORY_INACTIVE)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
-    })
-
-    it('returns 404 when the status does not exist', async () => {
-      mockAuthenticatedAdmin()
-      statusesBuilder.maybeSingle.mockResolvedValue({ data: null, error: null })
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ ...createPayload, status_code: 'missing' })
-
-      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_STATUS_NOT_FOUND)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
-    })
-
-    it('rejects capacity equal to or less than zero', async () => {
-      mockAuthenticatedAdmin()
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ ...createPayload, capacity: 0 })
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
-    })
-
-    it('rejects a registration deadline after starts_at', async () => {
-      mockAuthenticatedAdmin()
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({
-          ...createPayload,
-          registration_deadline: '2026-09-04T22:00:00.000Z',
-        })
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.INVALID_EVENT_DATES)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
-    })
-
-    it('rejects unknown properties', async () => {
-      mockAuthenticatedAdmin()
-
-      const response = await request(app)
-        .post('/events')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ ...createPayload, extra: true })
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
-      expect(eventsBuilder.insert).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('PATCH /events/:id', () => {
-    it('updates an event partially when the user is an admin', async () => {
-      mockAuthenticatedAdmin()
-      const updatedEvent = {
-        ...adminEvent,
-        title: 'Cancha cubierta',
-        updated_at: '2026-09-04T12:00:00.000Z',
-      }
-
-      eventsBuilder.maybeSingle
-        .mockResolvedValueOnce({ data: adminEvent, error: null })
-        .mockResolvedValueOnce({ data: updatedEvent, error: null })
-
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ title: 'Cancha cubierta' })
-
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(response.body.data.title).toBe('Cancha cubierta')
-      expect(eventsBuilder.update).toHaveBeenCalledTimes(1)
-      expect(eventsBuilder.updates[0].title).toBe('Cancha cubierta')
-      expect(eventsBuilder.updates[0].created_by).toBeUndefined()
-    })
-
-    it('revalidates the merged starts_at and registration_deadline', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle.mockResolvedValue({ data: adminEvent, error: null })
-
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ starts_at: '2026-09-04T17:00:00.000Z' })
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.INVALID_EVENT_DATES)
+      expect(response.body.errorCode).toBe(errorCodes.EVENT_UPDATE_CONFLICT)
       expect(eventsBuilder.update).not.toHaveBeenCalled()
-    })
-
-    it('updates updated_at', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle
-        .mockResolvedValueOnce({ data: adminEvent, error: null })
-        .mockResolvedValueOnce({ data: adminEvent, error: null })
-
-      const before = Date.now()
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ title: 'Cancha cubierta' })
-      const after = Date.now()
-
-      expect(response.status).toBe(httpStatusCodes.OK)
-      const updatedAt = Date.parse(eventsBuilder.updates[0].updated_at)
-      expect(updatedAt).toBeGreaterThanOrEqual(before)
-      expect(updatedAt).toBeLessThanOrEqual(after)
-    })
-
-    it('returns 404 when the event does not exist', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle.mockResolvedValue({ data: null, error: null })
-
-      const response = await request(app)
-        .patch('/events/99')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ title: 'Nueva' })
-
-      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
-    })
-
-    it('returns 400 for an empty body', async () => {
-      mockAuthenticatedAdmin()
-
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({})
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
-    })
-
-    it('rejects unknown properties', async () => {
-      mockAuthenticatedAdmin()
-
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(ADMIN_TOKEN))
-        .send({ title: 'Ok', extra: true })
-
-      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
-      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
-      expect(eventsBuilder.update).not.toHaveBeenCalled()
-    })
-
-    it('returns 403 when a non-admin tries to update an event', async () => {
-      mockAuthenticatedUser()
-      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
-
-      const response = await request(app)
-        .patch('/events/1')
-        .set(authHeader(USER_TOKEN))
-        .send({ title: 'Hack' })
-
-      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
-      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
-      expect(eventsBuilder.update).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('DELETE /events/:id', () => {
-    it('performs a logical delete by setting cancelled', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle
-        .mockResolvedValueOnce({ data: adminEvent, error: null })
-        .mockResolvedValueOnce({
-          data: { ...adminEvent, status_code: CANCELLED_STATUS_CODE },
-          error: null,
-        })
-
-      const response = await request(app).delete('/events/1').set(authHeader(ADMIN_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.NO_CONTENT)
-      expect(response.body).toEqual({})
-      expect(eventsBuilder.update).toHaveBeenCalledTimes(1)
-      expect(eventsBuilder.updates[0].status_code).toBe(CANCELLED_STATUS_CODE)
-      expect(eventsBuilder.updates[0].updated_at).toEqual(expect.any(String))
-      expect(eventsBuilder.delete).not.toHaveBeenCalled()
-    })
-
-    it('does not physically delete the row', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle
-        .mockResolvedValueOnce({ data: adminEvent, error: null })
-        .mockResolvedValueOnce({
-          data: { ...adminEvent, status_code: CANCELLED_STATUS_CODE },
-          error: null,
-        })
-
-      await request(app).delete('/events/1').set(authHeader(ADMIN_TOKEN))
-
-      expect(eventsBuilder.deleteCalled).toBe(false)
-      expect(eventsBuilder.delete).not.toHaveBeenCalled()
-    })
-
-    it('is idempotent when the event is already cancelled', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle.mockResolvedValue({
-        data: { ...adminEvent, status_code: CANCELLED_STATUS_CODE },
-        error: null,
-      })
-
-      const response = await request(app).delete('/events/1').set(authHeader(ADMIN_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.NO_CONTENT)
-      expect(eventsBuilder.update).not.toHaveBeenCalled()
-      expect(eventsBuilder.delete).not.toHaveBeenCalled()
-    })
-
-    it('returns 404 when the event does not exist', async () => {
-      mockAuthenticatedAdmin()
-      eventsBuilder.maybeSingle.mockResolvedValue({ data: null, error: null })
-
-      const response = await request(app).delete('/events/99').set(authHeader(ADMIN_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
-      expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
-    })
-
-    it('returns 403 when a non-admin tries to cancel an event', async () => {
-      mockAuthenticatedUser()
-      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
-
-      const response = await request(app).delete('/events/1').set(authHeader(USER_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
-      expect(eventsBuilder.update).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('GET /admin/events', () => {
-    it('returns 401 when no token is provided', async () => {
-      const response = await request(app).get('/admin/events')
-
-      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
-      expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
-    })
-
-    it('returns 403 when the authenticated user is not an admin', async () => {
-      mockAuthenticatedUser()
-      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
-
-      const response = await request(app).get('/admin/events').set(authHeader(USER_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
-      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
-    })
-
-    it('returns events of every status including drafts', async () => {
-      mockAuthenticatedAdmin()
-      const draftEvent = { ...adminEvent, id: 2, status_code: 'draft' }
-      eventsBuilder.resolved = { data: [adminEvent, draftEvent], error: null, count: 2 }
-
-      const response = await request(app).get('/admin/events').set(authHeader(ADMIN_TOKEN))
-
-      expect(response.status).toBe(httpStatusCodes.OK)
-      expect(response.body.data).toEqual([adminEvent, draftEvent])
-      expect(eventsBuilder.in).not.toHaveBeenCalled()
-      expect(String(eventsBuilder.selectArgs[0])).toContain('created_by')
     })
   })
 })

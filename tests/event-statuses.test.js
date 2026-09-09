@@ -1,20 +1,20 @@
-jest.mock('../supabase', () => ({
+jest.mock('../src/supabase', () => ({
   auth: {
     getUser: jest.fn(),
   },
 }))
 
-jest.mock('../supabase/admin', () => ({
+jest.mock('../src/supabase/admin', () => ({
   from: jest.fn(),
 }))
 
 const request = require('supertest')
-const app = require('../app')
-const supabase = require('../supabase')
-const supabaseAdmin = require('../supabase/admin')
+const app = require('../src/app')
+const supabase = require('../src/supabase')
+const supabaseAdmin = require('../src/supabase/admin')
 const { createQueryBuilder } = require('./helpers/mock-query-builder')
-const errorCodes = require('../constants/error-codes')
-const httpStatusCodes = require('../constants/http-status-codes')
+const errorCodes = require('../src/constants/error-codes')
+const httpStatusCodes = require('../src/constants/http-status-codes')
 
 const eventStatuses = [
   {
@@ -106,7 +106,7 @@ describe('event-statuses', () => {
       expect(response.body.data).toEqual([])
     })
 
-    it('maps a Supabase error to the centralized unexpected error', async () => {
+    it('maps a Supabase error to DB_UNKNOWN_ERROR with postgrest payload', async () => {
       const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
       statusesBuilder.resolved = {
         data: null,
@@ -123,12 +123,15 @@ describe('event-statuses', () => {
       expect(response.body).toEqual({
         status: 'error',
         statusCode: httpStatusCodes.INTERNAL_SERVER,
-        description: 'An unexpected error occurred',
-        errorCode: errorCodes.UNEXPECTED_ERROR,
-        data: null,
+        description: 'column event_statuses.name does not exist',
+        errorCode: errorCodes.DB_UNKNOWN_ERROR,
+        data: {
+          code: 'PGRST204',
+          message: 'column event_statuses.name does not exist',
+          details: 'host=db.internal port=5432 password=secret',
+          hint: null,
+        },
       })
-      expect(JSON.stringify(response.body)).not.toContain('password=secret')
-      expect(JSON.stringify(response.body)).not.toContain('column event_statuses.name does not exist')
       expect(consoleError).toHaveBeenCalledWith(
         expect.objectContaining({
           table: 'event_statuses',

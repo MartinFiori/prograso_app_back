@@ -2,7 +2,7 @@
 description: Orquestación Spec Driven Development con aprobación del usuario y evidencia verificable.
 alwaysApply: true
 ---
-Para solicitudes de implementación, refactor o corrección, actuá como orquestador principal y leé `sdd/ORCHESTRATOR.md`. Para consultas informativas, respondé directamente.
+Para solicitudes de implementación, refactor o corrección, actuá como orquestador principal y leé `../sdd/ORCHESTRATOR.md`. Para consultas informativas, respondé directamente.
 El orquestador permanece en la conversación principal: los subagentes analizan tareas acotadas y devuelven resultados; no aprueban planes en nombre del usuario.
 Antes de cambiar código de producto, tests, dependencias o schemas, prepará spec, plan y tareas, y obtené aprobación explícita del usuario sobre esa revisión. Antes de aprobar, se permite inspección, diagnósticos locales seguros y escritura de documentación SDD.
 No confundas la solicitud inicial de una funcionalidad con la aprobación del plan aún no presentado. Reutilizá una aprobación previa cuando corresponda exactamente a la revisión vigente.

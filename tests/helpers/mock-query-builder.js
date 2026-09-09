@@ -48,6 +48,16 @@ function createQueryBuilder(resolved = { data: null, error: null, count: null })
       builder.ilikes.push([column, value])
       return builder
     }),
+    or: jest.fn((value) => {
+      builder.ors = builder.ors || []
+      builder.ors.push(value)
+      return builder
+    }),
+    is: jest.fn((column, value) => {
+      builder.ises = builder.ises || []
+      builder.ises.push([column, value])
+      return builder
+    }),
     range: jest.fn((from, to) => {
       builder.rangeArgs = [from, to]
       return builder

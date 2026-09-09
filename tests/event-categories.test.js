@@ -1,20 +1,26 @@
-jest.mock('../supabase', () => ({
+jest.mock('../src/supabase', () => ({
   auth: {
     getUser: jest.fn(),
   },
 }))
 
-jest.mock('../supabase/admin', () => ({
+jest.mock('../src/supabase/admin', () => ({
   from: jest.fn(),
 }))
 
+jest.mock('../src/services/imgbb.service', () => ({
+  uploadImage: jest.fn(),
+}))
+
 const request = require('supertest')
-const app = require('../app')
-const supabase = require('../supabase')
-const supabaseAdmin = require('../supabase/admin')
+const app = require('../src/app')
+const supabase = require('../src/supabase')
+const supabaseAdmin = require('../src/supabase/admin')
+const imgbbService = require('../src/services/imgbb.service')
 const { createQueryBuilder } = require('./helpers/mock-query-builder')
-const errorCodes = require('../constants/error-codes')
-const httpStatusCodes = require('../constants/http-status-codes')
+const errorCodes = require('../src/constants/error-codes')
+const httpStatusCodes = require('../src/constants/http-status-codes')
+const buildApiError = require('../src/utils/buildApiError')
 
 const ADMIN_ID = 'admin-user-id'
 const USER_ID = 'regular-user-id'
@@ -34,6 +40,13 @@ const activeCategory = {
 function authHeader(token) {
   return { Authorization: `Bearer ${token}` }
 }
+
+const jpegBuffer = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+  0x00, 0x01, 0x00, 0x00,
+])
+
+const IMGBB_PUBLIC_URL = 'https://i.ibb.co/Mkc39HTJ/prueba.jpg'
 
 function mockAuthenticatedAdmin() {
   supabase.auth.getUser.mockResolvedValue({
@@ -127,7 +140,6 @@ describe('event-categories', () => {
     const createPayload = {
       name: 'Canchas abiertas',
       description: 'Partidos abiertos para anotarse',
-      image_url: 'https://example.com/image.jpg',
     }
 
     it('returns 401 when no token is provided', async () => {
@@ -135,6 +147,7 @@ describe('event-categories', () => {
 
       expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
       expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
     })
 
     it('returns 403 when the authenticated user is not an admin', async () => {
@@ -149,6 +162,7 @@ describe('event-categories', () => {
       expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
       expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
       expect(supabase.auth.getUser).toHaveBeenCalledWith(USER_TOKEN)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
     })
 
     it('creates a category when the user is an admin', async () => {
@@ -166,8 +180,9 @@ describe('event-categories', () => {
       expect(categoriesBuilder.insert).toHaveBeenCalledWith({
         name: 'Canchas abiertas',
         description: 'Partidos abiertos para anotarse',
-        image_url: 'https://example.com/image.jpg',
+        image_url: null,
       })
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
     })
 
     it('returns 409 when the name already exists', async () => {
@@ -191,6 +206,23 @@ describe('event-categories', () => {
       expect(response.body.data).toBeNull()
     })
 
+    it('rejects client-supplied image_url', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          name: 'Canchas abiertas',
+          image_url: 'https://example.com/injected.jpg',
+        })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(categoriesBuilder.insert).not.toHaveBeenCalled()
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
+    })
+
     it('rejects disallowed fields', async () => {
       mockAuthenticatedAdmin()
 
@@ -207,6 +239,106 @@ describe('event-categories', () => {
       expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
       expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
       expect(categoriesBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('uploads an image and persists only the ImgBB data.url', async () => {
+      mockAuthenticatedAdmin()
+      imgbbService.uploadImage.mockResolvedValue(IMGBB_PUBLIC_URL)
+      const created = { ...activeCategory, image_url: IMGBB_PUBLIC_URL }
+      categoriesBuilder.resolved = { data: created, error: null }
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .field('name', 'Canchas abiertas')
+        .field('description', 'Partidos abiertos para anotarse')
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.CREATED)
+      expect(response.body.data.image_url).toBe(IMGBB_PUBLIC_URL)
+      expect(response.body.data.delete_url).toBeUndefined()
+      expect(imgbbService.uploadImage).toHaveBeenCalledTimes(1)
+      expect(categoriesBuilder.insert).toHaveBeenCalledWith({
+        name: 'Canchas abiertas',
+        description: 'Partidos abiertos para anotarse',
+        image_url: IMGBB_PUBLIC_URL,
+      })
+    })
+
+    it('does not persist when ImgBB fails', async () => {
+      mockAuthenticatedAdmin()
+      imgbbService.uploadImage.mockRejectedValue(
+        buildApiError({
+          statusCode: httpStatusCodes.SERVICE_UNAVAILABLE,
+          description: 'Image upload failed',
+          errorCode: errorCodes.IMAGE_UPLOAD_FAILED,
+        }),
+      )
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .field('name', 'Canchas abiertas')
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.SERVICE_UNAVAILABLE)
+      expect(response.body.errorCode).toBe(errorCodes.IMAGE_UPLOAD_FAILED)
+      expect(categoriesBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects an empty image without calling ImgBB', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .field('name', 'Canchas abiertas')
+        .attach('image', Buffer.alloc(0), { filename: 'empty.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.EMPTY_FILE_UPLOAD)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
+      expect(categoriesBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects a disallowed image type without calling ImgBB', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .field('name', 'Canchas abiertas')
+        .attach('image', Buffer.from('not-an-image'), {
+          filename: 'notes.txt',
+          contentType: 'text/plain',
+        })
+
+      expect(response.status).toBe(httpStatusCodes.UNSUPPORTED_MEDIA_TYPE)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
+    })
+
+    it('does not upload when a non-admin sends a file', async () => {
+      mockAuthenticatedUser()
+      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(USER_TOKEN))
+        .field('name', 'Canchas abiertas')
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
+    })
+
+    it('does not upload when an unauthenticated request includes a file', async () => {
+      const response = await request(app)
+        .post('/event-categories')
+        .field('name', 'Canchas abiertas')
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
+      expect(imgbbService.uploadImage).not.toHaveBeenCalled()
     })
   })
 
@@ -236,6 +368,7 @@ describe('event-categories', () => {
 
       const updatePayload = categoriesBuilder.updates[0]
       expect(updatePayload.name).toBe('Canchas cubiertas')
+      expect(updatePayload.image_url).toBeUndefined()
       expect(updatePayload.updated_at).toEqual(expect.any(String))
 
       const updatedAt = Date.parse(updatePayload.updated_at)
@@ -307,6 +440,47 @@ describe('event-categories', () => {
 
       expect(response.status).toBe(httpStatusCodes.CONFLICT)
       expect(response.body.errorCode).toBe(errorCodes.EVENT_CATEGORY_NAME_ALREADY_EXISTS)
+    })
+
+    it('replaces image_url when a new image is uploaded', async () => {
+      mockAuthenticatedAdmin()
+      imgbbService.uploadImage.mockResolvedValue(IMGBB_PUBLIC_URL)
+      const updatedCategory = { ...activeCategory, image_url: IMGBB_PUBLIC_URL }
+
+      categoriesBuilder.maybeSingle
+        .mockResolvedValueOnce({ data: activeCategory, error: null })
+        .mockResolvedValueOnce({ data: updatedCategory, error: null })
+
+      const response = await request(app)
+        .patch('/event-categories/1')
+        .set(authHeader(ADMIN_TOKEN))
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data.image_url).toBe(IMGBB_PUBLIC_URL)
+      expect(response.body.data.delete_url).toBeUndefined()
+      expect(imgbbService.uploadImage).toHaveBeenCalledTimes(1)
+      expect(categoriesBuilder.updates[0].image_url).toBe(IMGBB_PUBLIC_URL)
+    })
+
+    it('does not update when ImgBB fails on PATCH', async () => {
+      mockAuthenticatedAdmin()
+      imgbbService.uploadImage.mockRejectedValue(
+        buildApiError({
+          statusCode: httpStatusCodes.SERVICE_UNAVAILABLE,
+          description: 'Image upload failed',
+          errorCode: errorCodes.IMAGE_UPLOAD_FAILED,
+        }),
+      )
+      categoriesBuilder.maybeSingle.mockResolvedValue({ data: activeCategory, error: null })
+
+      const response = await request(app)
+        .patch('/event-categories/1')
+        .set(authHeader(ADMIN_TOKEN))
+        .attach('image', jpegBuffer, { filename: 'prueba.jpg', contentType: 'image/jpeg' })
+
+      expect(response.status).toBe(httpStatusCodes.SERVICE_UNAVAILABLE)
+      expect(categoriesBuilder.update).not.toHaveBeenCalled()
     })
   })
 

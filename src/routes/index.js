@@ -1,0 +1,26 @@
+const { Router } = require('express')
+const exercises = require('./exercises')
+const me = require('./me')
+const eventCategories = require('./event-categories')
+const eventStatuses = require('./event-statuses')
+const registrationStatuses = require('./registration-statuses')
+const events = require('./events')
+const adminEvents = require('./admin/events')
+const adminEventRegistrations = require('./admin/event-registrations')
+const adminUsers = require('./admin/users')
+const adminAuditLogs = require('./admin/audit-logs')
+
+const router = Router()
+
+router.use('/exercises', exercises)
+router.use('/me', me)
+router.use('/event-categories', eventCategories)
+router.use('/event-statuses', eventStatuses)
+router.use('/registration-statuses', registrationStatuses)
+router.use('/events', events)
+router.use('/admin/events', adminEvents)
+router.use('/admin/event-registrations', adminEventRegistrations)
+router.use('/admin/users', adminUsers)
+router.use('/admin/audit-logs', adminAuditLogs)
+
+module.exports = router

@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const ROOT = path.join(__dirname, '..')
+const ROOT = path.join(__dirname, '..', '..')
 
 const DOC_PATHS = {
   frontendContext: path.join(ROOT, 'docs', 'frontend-context.md'),
