@@ -45,7 +45,8 @@ describe('docs frontend context', () => {
   it('mentions mounted catalog routes in the endpoint map', () => {
     const map = files.frontendContext
     expect(map).toContain('/health')
-    expect(map).toContain('/exercises')
+    expect(map).not.toContain('/exercises')
+    expect(map).toContain('PUT | `/admin/events/:eventId/registrations`')
     expect(map).toContain('/events')
     expect(map).toContain('/event-categories')
     expect(map).toContain('/event-statuses')

@@ -1,5 +1,4 @@
 const { Router } = require('express')
-const exercises = require('./exercises')
 const me = require('./me')
 const eventCategories = require('./event-categories')
 const eventStatuses = require('./event-statuses')
@@ -12,7 +11,6 @@ const adminAuditLogs = require('./admin/audit-logs')
 
 const router = Router()
 
-router.use('/exercises', exercises)
 router.use('/me', me)
 router.use('/event-categories', eventCategories)
 router.use('/event-statuses', eventStatuses)

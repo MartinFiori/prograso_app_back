@@ -7,6 +7,17 @@ async function getMe(req, res) {
   res.status(body.statusCode).json(body)
 }
 
+async function updateMe(req, res) {
+  const data = await meService.updateMe(
+    req.authUser.id,
+    req.body,
+    req.file ?? null,
+  )
+  const body = new ApiSuccess({ data })
+  res.status(body.statusCode).json(body)
+}
+
 module.exports = {
   getMe,
+  updateMe,
 }

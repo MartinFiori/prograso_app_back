@@ -2,7 +2,7 @@ const supabaseAdmin = require('../supabase/admin')
 const mapSupabaseError = require('../utils/map-supabase-error')
 
 const AUTH_COLUMNS = 'id, role'
-const ME_COLUMNS = 'id, role, name, avatar_url'
+const ME_COLUMNS = 'id, role, name, avatar_url, category, gender, phone_number'
 const ADMIN_COLUMNS = [
   'id',
   'role',

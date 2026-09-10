@@ -16,40 +16,46 @@ const { createQueryBuilder } = require('./helpers/mock-query-builder')
 const errorCodes = require('../src/constants/error-codes')
 const httpStatusCodes = require('../src/constants/http-status-codes')
 
-const eventStatuses = [
+const eventStatusesSql = [
   {
     code: 'draft',
-    label: 'Borrador',
+    name: 'Borrador',
     description: 'El evento todavía no fue publicado.',
   },
   {
     code: 'cancelled',
-    label: 'Cancelado',
+    name: 'Cancelado',
     description: 'El evento fue cancelado.',
   },
   {
     code: 'completed',
-    label: 'Finalizado',
+    name: 'Finalizado',
     description: 'El evento ya se realizó.',
   },
   {
     code: 'open',
-    label: 'Inscripciones abiertas',
+    name: 'Inscripciones abiertas',
     description: 'El evento permite nuevas inscripciones.',
   },
   {
     code: 'closed',
-    label: 'Inscripciones cerradas',
+    name: 'Inscripciones cerradas',
     description: 'El evento ya no permite inscripciones.',
   },
 ]
+
+const eventStatusesHttp = eventStatusesSql.map((row) => ({
+  code: row.code,
+  label: row.name,
+  description: row.description,
+}))
 
 describe('event-statuses', () => {
   let statusesBuilder
 
   beforeEach(() => {
     statusesBuilder = createQueryBuilder({
-      data: eventStatuses,
+      data: eventStatusesSql,
       error: null,
     })
 
@@ -69,11 +75,11 @@ describe('event-statuses', () => {
       expect(response.status).toBe(httpStatusCodes.OK)
       expect(response.body.status).toBe('success')
       expect(response.body.statusCode).toBe(httpStatusCodes.OK)
-      expect(response.body.data).toEqual(eventStatuses)
+      expect(response.body.data).toEqual(eventStatusesHttp)
       expect(supabase.auth.getUser).not.toHaveBeenCalled()
       expect(supabaseAdmin.from).toHaveBeenCalledWith('event_statuses')
-      expect(statusesBuilder.select).toHaveBeenCalledWith('code, label, description')
-      expect(statusesBuilder.order).toHaveBeenCalledWith('label', { ascending: true })
+      expect(statusesBuilder.select).toHaveBeenCalledWith('code, name, description')
+      expect(statusesBuilder.order).toHaveBeenCalledWith('name', { ascending: true })
       expect(statusesBuilder.eq).not.toHaveBeenCalled()
     })
 
@@ -81,7 +87,7 @@ describe('event-statuses', () => {
       const response = await request(app).get('/event-statuses')
 
       expect(response.status).toBe(httpStatusCodes.OK)
-      expect(response.body.data).toHaveLength(eventStatuses.length)
+      expect(response.body.data).toHaveLength(eventStatusesHttp.length)
       response.body.data.forEach((status) => {
         expect(Object.keys(status).sort()).toEqual(['code', 'description', 'label'])
       })

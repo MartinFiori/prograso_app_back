@@ -2,13 +2,13 @@ const supabaseAdmin = require('../supabase/admin')
 const mapSupabaseError = require('../utils/map-supabase-error')
 
 const TABLE = 'registration_statuses'
-const COLUMNS = 'code, label, description'
+const COLUMNS = 'code, name, description'
 
 async function list() {
   const { data, error } = await supabaseAdmin
     .from(TABLE)
     .select(COLUMNS)
-    .order('label', { ascending: true })
+    .order('name', { ascending: true })
 
   if (error) {
     throw mapSupabaseError(error)

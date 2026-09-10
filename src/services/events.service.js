@@ -172,6 +172,7 @@ async function create(payload, createdBy) {
     starts_at: payload.starts_at,
     registration_deadline: payload.registration_deadline ?? null,
     capacity: payload.capacity,
+    price: payload.price,
     status_code: statusCode,
     created_by: createdBy,
   })

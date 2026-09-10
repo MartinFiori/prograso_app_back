@@ -153,7 +153,7 @@ async function listByEvent({ eventId, filters = {}, pagination, publicProfile = 
   }
 
   if (filters.search) {
-    query = query.ilike('profiles.name', `%${escapeIlike(filters.search)}%`)
+    query = query.ilike('profile.name', `%${escapeIlike(filters.search)}%`)
   }
 
   const { data, error, count } = await query

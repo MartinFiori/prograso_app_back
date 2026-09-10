@@ -79,6 +79,7 @@ const createEventSchema = z.object({
       starts_at: isoDateTime,
       registration_deadline: z.union([isoDateTime, z.null()]).optional(),
       capacity: positiveInt,
+      price: positiveInt,
       status_code: z.string().min(1).optional(),
     })
     .strict(),
@@ -95,6 +96,7 @@ const updateEventSchema = z.object({
       starts_at: isoDateTime.optional(),
       registration_deadline: z.union([isoDateTime, z.null()]).optional(),
       capacity: positiveInt.optional(),
+      price: positiveInt.optional(),
       status_code: z.string().min(1).optional(),
     })
     .strict()

@@ -39,7 +39,7 @@ const draftEvent = {
   starts_at: '2026-09-20T21:00:00.000Z',
   registration_deadline: null,
   capacity: 16,
-  price: null,
+  price: 15000,
   status_code: 'draft',
   created_by: ADMIN_ID,
   created_at: '2026-09-08T12:00:00.000Z',
@@ -203,7 +203,26 @@ describe('events', () => {
           title: 'Open night',
           starts_at: '2026-09-20T21:00:00.000Z',
           capacity: 16,
+          price: 15000,
           created_by: ADMIN_ID,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(eventsBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects missing price with 400 VALIDATION_FAILED', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/events')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          category_id: 2,
+          title: 'Open night',
+          starts_at: '2026-09-20T21:00:00.000Z',
+          capacity: 16,
         })
 
       expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
@@ -299,6 +318,24 @@ describe('events', () => {
         }),
       )
       expect(eventsBuilder.updates[0]).not.toHaveProperty('capacity')
+    })
+
+    it('persists price on table update when capacity is omitted', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ price: 18000 })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.updates[0]).toEqual(
+        expect.objectContaining({
+          price: 18000,
+          updated_at: expect.any(String),
+        }),
+      )
     })
 
     it('calls admin_update_event and skips table update when capacity is present', async () => {
