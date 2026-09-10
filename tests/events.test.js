@@ -251,6 +251,20 @@ describe('events', () => {
       expect(eventsBuilder.update).not.toHaveBeenCalled()
     })
 
+    it('returns 400 VALIDATION_FAILED for a negative capacity without mutating', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: -1 })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(mockRpc).not.toHaveBeenCalled()
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
     it('returns 404 event_not_found when the event does not exist', async () => {
       mockAuthenticatedAdmin()
       eventsBuilder.resolved = { data: null, error: null }
@@ -329,6 +343,42 @@ describe('events', () => {
       expect(mockRpc).toHaveBeenCalledWith('admin_update_event', {
         p_event_id: 12,
         p_patch: { capacity: 16 },
+      })
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+    })
+
+    it('sends title and capacity together to the RPC without a table update', async () => {
+      mockAuthenticatedAdmin()
+      mockRpc.mockImplementation(async (_fnName, params) => {
+        eventsBuilder.resolved = {
+          data: {
+            ...draftEvent,
+            capacity: params.p_patch.capacity,
+            title: params.p_patch.title,
+          },
+          error: null,
+        }
+        return {
+          data: {
+            ...draftEvent,
+            capacity: params.p_patch.capacity,
+            title: params.p_patch.title,
+          },
+          error: null,
+        }
+      })
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ capacity: 2, title: 'Cancha de noche' })
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data.capacity).toBe(2)
+      expect(response.body.data.title).toBe('Cancha de noche')
+      expect(mockRpc).toHaveBeenCalledWith('admin_update_event', {
+        p_event_id: 12,
+        p_patch: { capacity: 2, title: 'Cancha de noche' },
       })
       expect(eventsBuilder.update).not.toHaveBeenCalled()
     })
