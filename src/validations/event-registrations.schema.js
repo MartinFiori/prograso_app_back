@@ -133,6 +133,14 @@ const adminUpdateRegistrationSchema = z.object({
     }),
 })
 
+const markRegistrationPaidSchema = z.object({
+  params: z.object({
+    eventId: eventIdParam,
+    userId: z.string().uuid(),
+  }),
+  body: z.object({}).strict(),
+})
+
 module.exports = {
   eventIdParamSchema,
   listPublicRegistrationsQuerySchema,
@@ -142,4 +150,5 @@ module.exports = {
   adminSyncRegistrationsSchema,
   registrationIdParamSchema,
   adminUpdateRegistrationSchema,
+  markRegistrationPaidSchema,
 }

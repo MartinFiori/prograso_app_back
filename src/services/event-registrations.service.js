@@ -185,6 +185,10 @@ async function adminRemove(registrationId, accessToken) {
   return eventRegistrationsRepository.adminDelete(accessToken, registrationId)
 }
 
+async function markPaid(eventId, userId, accessToken) {
+  return eventRegistrationsRepository.markPaid(accessToken, eventId, userId)
+}
+
 module.exports = {
   register,
   getMine,
@@ -196,4 +200,5 @@ module.exports = {
   adminSync,
   adminUpdate,
   adminRemove,
+  markPaid,
 }

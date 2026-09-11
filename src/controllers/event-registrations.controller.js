@@ -97,6 +97,16 @@ async function adminRemove(req, res) {
   res.status(body.statusCode).json(body)
 }
 
+async function markPaid(req, res) {
+  const data = await eventRegistrationsService.markPaid(
+    req.params.eventId,
+    req.params.userId,
+    req.accessToken,
+  )
+  const body = new ApiSuccess({ data })
+  res.status(body.statusCode).json(body)
+}
+
 module.exports = {
   register,
   getMine,
@@ -108,4 +118,5 @@ module.exports = {
   adminSync,
   adminUpdate,
   adminRemove,
+  markPaid,
 }

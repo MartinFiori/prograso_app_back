@@ -21,6 +21,7 @@ const request = require('supertest')
 const app = require('../src/app')
 const supabase = require('../src/supabase')
 const supabaseAdmin = require('../src/supabase/admin')
+const { createUserClient } = require('../src/supabase/user-client')
 const { createQueryBuilder } = require('./helpers/mock-query-builder')
 const errorCodes = require('../src/constants/error-codes')
 const httpStatusCodes = require('../src/constants/http-status-codes')
@@ -225,5 +226,252 @@ describe('admin event registration sync', () => {
 
     expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
     expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+  })
+})
+
+describe('PATCH /events/:eventId/registrations/:userId/paid', () => {
+  let profilesBuilder
+
+  const paidRow = {
+    id: 12,
+    event_id: 4,
+    user_id: USER_A,
+    status_code: 'confirmed',
+    waitlist_position: null,
+    has_paid: true,
+    created_at: '2026-09-04T18:00:00.000Z',
+    updated_at: '2026-09-04T18:00:00.000Z',
+  }
+
+  beforeEach(() => {
+    mockRpc.mockReset()
+    profilesBuilder = createQueryBuilder({
+      data: [{ id: ADMIN_ID, role: 'admin' }],
+      error: null,
+    })
+    profilesBuilder.maybeSingle.mockResolvedValue({
+      data: { id: ADMIN_ID, role: 'admin' },
+      error: null,
+    })
+
+    supabaseAdmin.from.mockImplementation((table) => {
+      if (table === 'profiles') {
+        return profilesBuilder
+      }
+
+      return createQueryBuilder({ data: null, error: null })
+    })
+  })
+
+  it('sets has_paid true for an admin', async () => {
+    mockAuthenticatedAdmin()
+    mockRpc.mockResolvedValue({ data: paidRow, error: null })
+
+    const response = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.OK)
+    expect(response.body.data.has_paid).toBe(true)
+    expect(mockRpc).toHaveBeenCalledWith('admin_mark_registration_paid', {
+      p_event_id: 4,
+      p_user_id: USER_A,
+    })
+  })
+
+  it('is idempotent when already paid', async () => {
+    mockAuthenticatedAdmin()
+    mockRpc.mockResolvedValue({ data: paidRow, error: null })
+
+    const response = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.OK)
+    expect(response.body.data.has_paid).toBe(true)
+  })
+
+  it('returns 403 for non-admin callers', async () => {
+    mockAuthenticatedUser()
+    profilesBuilder.maybeSingle.mockResolvedValue({
+      data: { id: USER_ID, role: 'user' },
+      error: null,
+    })
+
+    const response = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(USER_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
+    expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 without a bearer token', async () => {
+    const response = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
+    expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 registration_not_found', async () => {
+    mockAuthenticatedAdmin()
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { message: 'registration_not_found' },
+    })
+
+    const response = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
+    expect(response.body.errorCode).toBe(errorCodes.REGISTRATION_NOT_FOUND)
+  })
+
+  it('returns 404 event_not_found', async () => {
+    mockAuthenticatedAdmin()
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { message: 'event_not_found' },
+    })
+
+    const response = await request(app)
+      .patch(`/events/999/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.NOT_FOUND)
+    expect(response.body.errorCode).toBe(errorCodes.EVENT_NOT_FOUND)
+  })
+
+  it('rejects extra keys and has_paid in the body', async () => {
+    mockAuthenticatedAdmin()
+
+    const extra = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({ extra: true })
+
+    expect(extra.status).toBe(httpStatusCodes.BAD_REQUEST)
+    expect(extra.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+
+    const falsePaid = await request(app)
+      .patch(`/events/4/registrations/${USER_A}/paid`)
+      .set(authHeader(ADMIN_TOKEN))
+      .send({ has_paid: false })
+
+    expect(falsePaid.status).toBe(httpStatusCodes.BAD_REQUEST)
+    expect(falsePaid.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /events/:eventId/registrations hides has_paid', () => {
+  it('strips has_paid from the public roster', async () => {
+    const eventBuilder = createQueryBuilder({
+      data: {
+        id: 4,
+        category_id: 1,
+        title: 'Open',
+        starts_at: '2026-09-20T21:00:00.000Z',
+        registration_deadline: null,
+        capacity: 16,
+        price: 15000,
+        status_code: 'open',
+        created_at: '2026-09-04T18:00:00.000Z',
+        updated_at: '2026-09-04T18:00:00.000Z',
+        category: { id: 1, name: 'Cat', image_url: null },
+      },
+      error: null,
+    })
+    const registrationsBuilder = createQueryBuilder({
+      data: [
+        {
+          id: 12,
+          event_id: 4,
+          user_id: USER_A,
+          status_code: 'confirmed',
+          waitlist_position: null,
+          has_paid: true,
+          created_at: '2026-09-04T18:00:00.000Z',
+          updated_at: '2026-09-04T18:00:00.000Z',
+          profile: { id: USER_A, name: 'Ana', avatar_url: null },
+        },
+      ],
+      error: null,
+      count: 1,
+    })
+
+    supabaseAdmin.from.mockImplementation((table) => {
+      if (table === 'events') {
+        return eventBuilder
+      }
+      if (table === 'event_registrations') {
+        return registrationsBuilder
+      }
+      return createQueryBuilder({ data: null, error: null })
+    })
+
+    const response = await request(app).get('/events/4/registrations')
+
+    expect(response.status).toBe(httpStatusCodes.OK)
+    expect(response.body.data[0].has_paid).toBeUndefined()
+    expect(response.body.data[0].user_id).toBe(USER_A)
+  })
+})
+
+describe('GET /events/:eventId/registrations/me includes has_paid', () => {
+  it('returns has_paid on the caller registration', async () => {
+    mockAuthenticatedUser()
+    const profilesBuilder = createQueryBuilder({
+      data: { id: USER_ID, role: 'user' },
+      error: null,
+    })
+    const eventBuilder = createQueryBuilder({
+      data: { id: 4, title: 'Open', status_code: 'open', capacity: 16 },
+      error: null,
+    })
+    const mineBuilder = createQueryBuilder({
+      data: {
+        id: 12,
+        event_id: 4,
+        user_id: USER_ID,
+        status_code: 'confirmed',
+        waitlist_position: null,
+        has_paid: true,
+        created_at: '2026-09-04T18:00:00.000Z',
+        updated_at: '2026-09-04T18:00:00.000Z',
+      },
+      error: null,
+    })
+
+    supabaseAdmin.from.mockImplementation((table) => {
+      if (table === 'profiles') {
+        return profilesBuilder
+      }
+      if (table === 'events') {
+        return eventBuilder
+      }
+      return createQueryBuilder({ data: null, error: null })
+    })
+    createUserClient.mockImplementation(() => ({
+      rpc: mockRpc,
+      from: jest.fn(() => mineBuilder),
+    }))
+
+    const response = await request(app)
+      .get('/events/4/registrations/me')
+      .set(authHeader(USER_TOKEN))
+
+    expect(response.status).toBe(httpStatusCodes.OK)
+    expect(response.body.data.has_paid).toBe(true)
   })
 })

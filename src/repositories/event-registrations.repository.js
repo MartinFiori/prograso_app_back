@@ -8,7 +8,7 @@ const {
 
 const TABLE = 'event_registrations'
 const REGISTRATION_COLUMNS =
-  'id, event_id, user_id, status_code, waitlist_position, created_at, updated_at'
+  'id, event_id, user_id, status_code, waitlist_position, has_paid, created_at, updated_at'
 const PUBLIC_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url)`
 const ADMIN_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url, role)`
 const ADMIN_SEARCH_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles!inner(id, name, avatar_url, role)`
@@ -83,6 +83,13 @@ async function adminUpdate(accessToken, registrationId, patch) {
 async function adminDelete(accessToken, registrationId) {
   return callRpc(accessToken, 'admin_delete_registration', {
     p_registration_id: registrationId,
+  })
+}
+
+async function markPaid(accessToken, eventId, userId) {
+  return callRpc(accessToken, 'admin_mark_registration_paid', {
+    p_event_id: eventId,
+    p_user_id: userId,
   })
 }
 
@@ -189,4 +196,5 @@ module.exports = {
   findById,
   listByEvent,
   getCapacityCounts,
+  markPaid,
 }

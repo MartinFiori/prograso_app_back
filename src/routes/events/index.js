@@ -15,6 +15,7 @@ const {
   eventIdParamSchema,
   listPublicRegistrationsQuerySchema,
   registerForEventSchema,
+  markRegistrationPaidSchema,
 } = require('../../validations/event-registrations.schema')
 
 const router = Router()
@@ -45,6 +46,13 @@ router.get(
   '/:eventId/registrations',
   validate(listPublicRegistrationsQuerySchema),
   eventRegistrationsController.listPublic,
+)
+router.patch(
+  '/:eventId/registrations/:userId/paid',
+  authenticate,
+  requireAdmin,
+  validate(markRegistrationPaidSchema),
+  eventRegistrationsController.markPaid,
 )
 router.get('/:id', validate(idParamSchema), eventsController.getById)
 router.post(
