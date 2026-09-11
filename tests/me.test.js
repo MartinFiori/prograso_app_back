@@ -200,6 +200,22 @@ describe('PATCH /me', () => {
     expect(profilesBuilder.eq).toHaveBeenCalledWith('id', USER_ID)
   })
 
+  it('clears avatar_url when null', async () => {
+    profilesBuilder.resolved = {
+      data: { ...meProfile, avatar_url: null },
+      error: null,
+    }
+
+    const response = await request(app)
+      .patch('/me')
+      .set(authHeader(USER_TOKEN))
+      .send({ avatar_url: null })
+
+    expect(response.status).toBe(httpStatusCodes.OK)
+    expect(profilesBuilder.update).toHaveBeenCalledWith({ avatar_url: null })
+    expect(response.body.data.avatar_url).toBeNull()
+  })
+
   it('clears phone_number when empty', async () => {
     profilesBuilder.resolved = {
       data: { ...meProfile, phone_number: null },
