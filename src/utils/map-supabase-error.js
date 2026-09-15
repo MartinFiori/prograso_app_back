@@ -4,10 +4,10 @@ const errorCodes = require('../constants/error-codes')
 
 const BUSINESS_ERRORS = [
   {
-    token: 'registration_deadline_expired',
+    token: 'event_already_started',
     statusCode: httpStatusCodes.CONFLICT,
-    description: 'The registration deadline has expired',
-    errorCode: errorCodes.REGISTRATION_DEADLINE_EXPIRED,
+    description: 'The event has already started',
+    errorCode: errorCodes.EVENT_ALREADY_STARTED,
   },
   {
     token: 'registration_already_exists',
@@ -16,10 +16,28 @@ const BUSINESS_ERRORS = [
     errorCode: errorCodes.REGISTRATION_ALREADY_EXISTS,
   },
   {
+    token: 'paired_registration_not_found',
+    statusCode: httpStatusCodes.CONFLICT,
+    description: 'The registration does not belong to a pair',
+    errorCode: errorCodes.PAIRED_REGISTRATION_NOT_FOUND,
+  },
+  {
     token: 'registration_not_found',
     statusCode: httpStatusCodes.NOT_FOUND,
     description: 'Registration not found',
     errorCode: errorCodes.REGISTRATION_NOT_FOUND,
+  },
+  {
+    token: 'invalid_companion',
+    statusCode: httpStatusCodes.BAD_REQUEST,
+    description: 'The companion must be a different registered user',
+    errorCode: errorCodes.INVALID_COMPANION,
+  },
+  {
+    token: 'companion_not_allowed',
+    statusCode: httpStatusCodes.BAD_REQUEST,
+    description: 'This event does not accept pair registrations',
+    errorCode: errorCodes.COMPANION_NOT_ALLOWED,
   },
   {
     token: 'waitlist_position_conflict',
@@ -229,10 +247,10 @@ function mapSupabaseError(error) {
   }
 
   if (error?.code === '23514') {
-    if (includesConstraint(error, 'events_registration_deadline_valid')) {
+    if (includesConstraint(error, 'events_time_range_valid')) {
       return buildApiError({
         statusCode: httpStatusCodes.BAD_REQUEST,
-        description: 'registration_deadline must be before or equal to starts_at',
+        description: 'end_at must be after starts_at',
         errorCode: errorCodes.INVALID_EVENT_DATES,
       })
     }

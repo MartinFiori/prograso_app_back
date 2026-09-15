@@ -38,15 +38,11 @@ function emptyList(pagination) {
   }
 }
 
-function assertValidDates(startsAt, registrationDeadline) {
-  if (registrationDeadline == null) {
-    return
-  }
-
-  if (Date.parse(registrationDeadline) > Date.parse(startsAt)) {
+function assertValidDates(startsAt, endAt) {
+  if (Date.parse(endAt) <= Date.parse(startsAt)) {
     throw buildApiError({
       statusCode: httpStatusCodes.BAD_REQUEST,
-      description: 'registration_deadline must be before or equal to starts_at',
+      description: 'end_at must be after starts_at',
       errorCode: errorCodes.INVALID_EVENT_DATES,
     })
   }
@@ -164,13 +160,13 @@ async function create(payload, createdBy) {
 
   const statusCode = payload.status_code ?? DEFAULT_STATUS_CODE
   await assertStatusExists(statusCode)
-  assertValidDates(payload.starts_at, payload.registration_deadline)
+  assertValidDates(payload.starts_at, payload.end_at)
 
   return eventsRepository.insert({
     category_id: payload.category_id,
     title: payload.title,
     starts_at: payload.starts_at,
-    registration_deadline: payload.registration_deadline ?? null,
+    end_at: payload.end_at,
     capacity: payload.capacity,
     price: payload.price,
     status_code: statusCode,
@@ -194,12 +190,9 @@ async function update(id, payload, accessToken) {
   }
 
   const nextStartsAt = payload.starts_at ?? existing.starts_at
-  const nextDeadline =
-    payload.registration_deadline !== undefined
-      ? payload.registration_deadline
-      : existing.registration_deadline
+  const nextEndAt = payload.end_at ?? existing.end_at
 
-  assertValidDates(nextStartsAt, nextDeadline)
+  assertValidDates(nextStartsAt, nextEndAt)
 
   const hasCapacity = Object.prototype.hasOwnProperty.call(payload, 'capacity')
 

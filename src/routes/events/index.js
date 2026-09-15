@@ -7,7 +7,7 @@ const loadProfile = require('../../middleware/load-profile')
 const validate = require('../../middleware/validate')
 const {
   idParamSchema,
-  listEventsQuerySchema,
+  listPublicEventsQuerySchema,
   createEventSchema,
   updateEventSchema,
 } = require('../../validations/events.schema')
@@ -20,7 +20,7 @@ const {
 
 const router = Router()
 
-router.get('/', validate(listEventsQuerySchema), eventsController.list)
+router.get('/', validate(listPublicEventsQuerySchema), eventsController.list)
 router.post(
   '/:eventId/registrations',
   authenticate,

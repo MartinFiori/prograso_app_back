@@ -10,6 +10,7 @@ async function register(req, res) {
   const data = await eventRegistrationsService.register(
     req.params.eventId,
     req.accessToken,
+    req.body.companion_user_id,
   )
   const body = new ApiSuccess({ data, statusCode: httpStatusCodes.CREATED })
   res.status(body.statusCode).json(body)
@@ -38,6 +39,7 @@ async function unregister(req, res) {
   const data = await eventRegistrationsService.unregister(
     req.params.eventId,
     req.accessToken,
+    req.authUser.id,
   )
   const body = new ApiSuccess({ data })
   res.status(body.statusCode).json(body)

@@ -36,6 +36,7 @@ function toPublicRegistration(row) {
     id: row.id,
     event_id: row.event_id,
     user_id: row.user_id,
+    registration_group_id: row.registration_group_id ?? null,
     status_code: row.status_code,
     waitlist_position: row.waitlist_position,
     created_at: row.created_at,
@@ -48,6 +49,27 @@ function toPublicRegistration(row) {
   }
 }
 
+function companionError(errorCode, description) {
+  return buildApiError({
+    statusCode: httpStatusCodes.BAD_REQUEST,
+    description,
+    errorCode,
+  })
+}
+
+async function withCompanion(registration) {
+  if (!registration?.registration_group_id) {
+    return registration
+  }
+
+  const companion = await eventRegistrationsRepository.findGroupCompanion(
+    registration.registration_group_id,
+    registration.user_id,
+  )
+
+  return { ...registration, companion }
+}
+
 async function assertEventExists(eventId) {
   const event = await eventsRepository.findById(eventId)
 
@@ -58,8 +80,33 @@ async function assertEventExists(eventId) {
   return event
 }
 
-async function register(eventId, accessToken) {
-  return eventRegistrationsRepository.register(accessToken, eventId)
+async function register(eventId, accessToken, companionUserId) {
+  const event = await assertEventExists(eventId)
+  const registrationSize = event.category?.participants_per_registration ?? 1
+
+  if (registrationSize === 2 && !companionUserId) {
+    throw companionError(
+      errorCodes.INVALID_COMPANION,
+      'A companion is required for this event',
+    )
+  }
+
+  if (registrationSize === 1 && companionUserId) {
+    throw companionError(
+      errorCodes.COMPANION_NOT_ALLOWED,
+      'This event does not accept pair registrations',
+    )
+  }
+
+  const registration = companionUserId
+    ? await eventRegistrationsRepository.registerPair(
+        accessToken,
+        eventId,
+        companionUserId,
+      )
+    : await eventRegistrationsRepository.register(accessToken, eventId)
+
+  return withCompanion(registration)
 }
 
 async function getMine(eventId, accessToken, userId) {
@@ -75,11 +122,23 @@ async function getMine(eventId, accessToken, userId) {
     throw registrationNotFoundError()
   }
 
-  return registration
+  return withCompanion(registration)
 }
 
-async function unregister(eventId, accessToken) {
-  return eventRegistrationsRepository.unregister(accessToken, eventId)
+async function unregister(eventId, accessToken, userId) {
+  const registration = await eventRegistrationsRepository.findMine(
+    accessToken,
+    eventId,
+    userId,
+  )
+
+  if (!registration) {
+    throw registrationNotFoundError()
+  }
+
+  return registration.registration_group_id
+    ? eventRegistrationsRepository.unregisterPair(accessToken, eventId)
+    : eventRegistrationsRepository.unregister(accessToken, eventId)
 }
 
 async function listPublic(eventId, query) {
@@ -182,7 +241,11 @@ async function adminUpdate(registrationId, patch, accessToken) {
 }
 
 async function adminRemove(registrationId, accessToken) {
-  return eventRegistrationsRepository.adminDelete(accessToken, registrationId)
+  const registration = await getAdminById(registrationId)
+
+  return registration.registration_group_id
+    ? eventRegistrationsRepository.adminDeletePair(accessToken, registrationId)
+    : eventRegistrationsRepository.adminDelete(accessToken, registrationId)
 }
 
 async function markPaid(eventId, userId, accessToken) {

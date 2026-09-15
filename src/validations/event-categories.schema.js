@@ -31,6 +31,7 @@ const optionalBoolean = z.preprocess((value) => {
 const categoryFields = {
   name: z.string().trim().min(1, 'name is required'),
   description: z.union([z.string(), z.null()]).optional(),
+  participants_per_registration: z.coerce.number().int().min(1).max(2).optional(),
 }
 
 const createEventCategorySchema = z.object({
@@ -38,6 +39,7 @@ const createEventCategorySchema = z.object({
     .object({
       name: categoryFields.name,
       description: categoryFields.description,
+      participants_per_registration: categoryFields.participants_per_registration,
     })
     .strict(),
 })
@@ -46,6 +48,7 @@ const updateEventCategoryFieldsSchema = z
   .object({
     name: categoryFields.name.optional(),
     description: categoryFields.description,
+    participants_per_registration: categoryFields.participants_per_registration,
     is_active: optionalBoolean,
   })
   .strict()

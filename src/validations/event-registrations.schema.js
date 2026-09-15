@@ -65,7 +65,11 @@ const registerForEventSchema = z.object({
   params: z.object({
     eventId: eventIdParam,
   }),
-  body: z.object({}).strict(),
+  body: z
+    .object({
+      companion_user_id: z.string().uuid().optional(),
+    })
+    .strict(),
 })
 
 const listAdminRegistrationsQuerySchema = z.object({

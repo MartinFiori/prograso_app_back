@@ -41,11 +41,17 @@ async function resolveImageUrl(file) {
 async function create(payload, file) {
   const imageUrl = await resolveImageUrl(file)
 
-  return eventCategoriesRepository.insert({
+  const category = {
     name: payload.name,
     description: payload.description ?? null,
     image_url: imageUrl,
-  })
+  }
+
+  if (payload.participants_per_registration !== undefined) {
+    category.participants_per_registration = payload.participants_per_registration
+  }
+
+  return eventCategoriesRepository.insert(category)
 }
 
 async function update(id, payload, file) {

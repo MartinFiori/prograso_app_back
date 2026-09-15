@@ -1,4 +1,5 @@
 const { z } = require('zod')
+const { OPEN_STATUS_CODE } = require('../constants/event-statuses')
 
 const ISO_DATETIME_RE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -48,28 +49,38 @@ const idParamSchema = z.object({
   }),
 })
 
-const listEventsQuerySchema = z.object({
-  query: z
-    .object({
-      category_id: idParam.optional(),
-      status_code: z.string().min(1).optional(),
-      starts_from: isoDateTime.optional(),
-      starts_to: isoDateTime.optional(),
-      page: numericQuery(1, { min: 1 }),
-      limit: numericQuery(20, { min: 1, max: 100 }),
-    })
-    .strict()
-    .refine(
-      (query) =>
-        !query.starts_from ||
-        !query.starts_to ||
-        Date.parse(query.starts_from) <= Date.parse(query.starts_to),
-      {
-        message: 'starts_from must be before or equal to starts_to',
-        path: ['starts_from'],
-      },
-    ),
-})
+function listEventsQuery(statusCodeSchema) {
+  const shape = {
+    category_id: idParam.optional(),
+    starts_from: isoDateTime.optional(),
+    starts_to: isoDateTime.optional(),
+    page: numericQuery(1, { min: 1 }),
+    limit: numericQuery(20, { min: 1, max: 100 }),
+  }
+
+  if (statusCodeSchema) {
+    shape.status_code = statusCodeSchema.optional()
+  }
+
+  return z.object({
+    query: z
+      .object(shape)
+      .strict()
+      .refine(
+        (query) =>
+          !query.starts_from ||
+          !query.starts_to ||
+          Date.parse(query.starts_from) <= Date.parse(query.starts_to),
+        {
+          message: 'starts_from must be before or equal to starts_to',
+          path: ['starts_from'],
+        },
+      ),
+  })
+}
+
+const listPublicEventsQuerySchema = listEventsQuery(z.literal(OPEN_STATUS_CODE))
+const listEventsQuerySchema = listEventsQuery(z.string().min(1))
 
 const createEventSchema = z.object({
   body: z
@@ -77,7 +88,7 @@ const createEventSchema = z.object({
       category_id: positiveInt,
       title: z.string().trim().min(1, 'title is required'),
       starts_at: isoDateTime,
-      registration_deadline: z.union([isoDateTime, z.null()]).optional(),
+      end_at: isoDateTime,
       capacity: positiveInt,
       price: positiveInt,
       status_code: z.string().min(1).optional(),
@@ -94,7 +105,7 @@ const updateEventSchema = z.object({
       category_id: positiveInt.optional(),
       title: z.string().trim().min(1, 'title is required').optional(),
       starts_at: isoDateTime.optional(),
-      registration_deadline: z.union([isoDateTime, z.null()]).optional(),
+      end_at: isoDateTime.optional(),
       capacity: positiveInt.optional(),
       price: positiveInt.optional(),
       status_code: z.string().min(1).optional(),
@@ -107,6 +118,7 @@ const updateEventSchema = z.object({
 
 module.exports = {
   idParamSchema,
+  listPublicEventsQuerySchema,
   listEventsQuerySchema,
   createEventSchema,
   updateEventSchema,

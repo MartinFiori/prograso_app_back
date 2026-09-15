@@ -53,11 +53,18 @@ describe('mapSupabaseError', () => {
   it('maps invalid event date check constraints', () => {
     const err = mapSupabaseError({
       code: '23514',
-      message: 'new row for relation "events" violates check constraint "events_registration_deadline_valid"',
+      message: 'new row for relation "events" violates check constraint "events_time_range_valid"',
     })
 
     expect(err.statusCode).toBe(httpStatusCodes.BAD_REQUEST)
     expect(err.errorCode).toBe(errorCodes.INVALID_EVENT_DATES)
+  })
+
+  it('maps attempts to register after the event starts', () => {
+    const err = mapSupabaseError({ code: 'P0001', message: 'event_already_started' })
+
+    expect(err.statusCode).toBe(httpStatusCodes.CONFLICT)
+    expect(err.errorCode).toBe(errorCodes.EVENT_ALREADY_STARTED)
   })
 
   it('maps invalid capacity check constraints', () => {

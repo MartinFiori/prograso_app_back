@@ -8,6 +8,7 @@ const adminEvents = require('./admin/events')
 const adminEventRegistrations = require('./admin/event-registrations')
 const adminUsers = require('./admin/users')
 const adminAuditLogs = require('./admin/audit-logs')
+const players = require('./players')
 
 const router = Router()
 
@@ -20,5 +21,6 @@ router.use('/admin/events', adminEvents)
 router.use('/admin/event-registrations', adminEventRegistrations)
 router.use('/admin/users', adminUsers)
 router.use('/admin/audit-logs', adminAuditLogs)
+router.use('/players', players)
 
 module.exports = router

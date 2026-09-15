@@ -165,6 +165,22 @@ async function countRegistrationsByUser(userId) {
   return countByForeignKey('event_registrations', 'user_id', userId)
 }
 
+async function searchPlayers(query, excludeUserId) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, name, avatar_url')
+    .ilike('name', `%${escapeIlike(query)}%`)
+    .neq('id', excludeUserId)
+    .order('name', { ascending: true })
+    .limit(10)
+
+  if (error) {
+    throw mapSupabaseError(error)
+  }
+
+  return data ?? []
+}
+
 async function guardAdminMutation(actorId, targetId, action) {
   const { error } = await supabaseAdmin.rpc('guard_admin_user_mutation', {
     p_actor_id: actorId,
@@ -186,5 +202,6 @@ module.exports = {
   list,
   countEventsCreatedBy,
   countRegistrationsByUser,
+  searchPlayers,
   guardAdminMutation,
 }

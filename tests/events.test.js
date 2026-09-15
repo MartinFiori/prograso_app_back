@@ -37,7 +37,7 @@ const draftEvent = {
   category_id: 2,
   title: 'Borrador interno',
   starts_at: '2026-09-20T21:00:00.000Z',
-  registration_deadline: null,
+  end_at: '2026-09-20T23:00:00.000Z',
   capacity: 16,
   price: 15000,
   status_code: 'draft',
@@ -105,6 +105,72 @@ describe('events', () => {
       }
 
       return eventsBuilder
+    })
+  })
+
+  describe('GET /events', () => {
+    it('returns only open events without requiring authentication', async () => {
+      const openEvent = { ...draftEvent, id: 1, status_code: 'open' }
+      eventsBuilder.resolved = { data: [openEvent], error: null, count: 1 }
+
+      const response = await request(app).get('/events')
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data).toEqual([expect.objectContaining({ id: 1, status_code: 'open' })])
+      expect(response.body.pagination).toEqual({ page: 1, limit: 20, total: 1, total_pages: 1 })
+      expect(eventsBuilder.eqs).toContainEqual(['status_code', 'open'])
+      expect(eventsBuilder.ins.find(([column]) => column === 'status_code')).toBeUndefined()
+      expect(supabase.auth.getUser).not.toHaveBeenCalled()
+    })
+
+    it('rejects a public status filter other than open', async () => {
+      const response = await request(app).get('/events?status_code=closed')
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(eventsBuilder.select).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('GET /admin/events', () => {
+    it('returns events from every status without adding a status filter', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.resolved = {
+        data: [draftEvent, { ...draftEvent, id: 13, status_code: 'cancelled' }],
+        error: null,
+        count: 2,
+      }
+
+      const response = await request(app).get('/admin/events').set(authHeader(ADMIN_TOKEN))
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data.map((event) => event.status_code)).toEqual(['draft', 'cancelled'])
+      expect(response.body.data[0]).toEqual(
+        expect.objectContaining({
+          created_by: ADMIN_ID,
+          created_at: draftEvent.created_at,
+          updated_at: draftEvent.updated_at,
+        }),
+      )
+      expect(eventsBuilder.eqs.find(([column]) => column === 'status_code')).toBeUndefined()
+      expect(eventsBuilder.ins.find(([column]) => column === 'status_code')).toBeUndefined()
+    })
+
+    it('returns 401 without a Bearer token', async () => {
+      const response = await request(app).get('/admin/events')
+
+      expect(response.status).toBe(httpStatusCodes.UNAUTHORIZED)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_USER_REQUIRED)
+    })
+
+    it('returns 403 when the caller is not an admin', async () => {
+      mockAuthenticatedUser()
+      profilesBuilder.resolved = { data: { id: USER_ID, role: 'user' }, error: null }
+
+      const response = await request(app).get('/admin/events').set(authHeader(USER_TOKEN))
+
+      expect(response.status).toBe(httpStatusCodes.FORBIDDEN)
+      expect(response.body.errorCode).toBe(errorCodes.AUTH_INSUFFICIENT_PERMISSIONS)
     })
   })
 
@@ -192,6 +258,36 @@ describe('events', () => {
   })
 
   describe('POST /events created_by', () => {
+    it('creates an event with starts_at and end_at', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.maybeSingle
+        .mockResolvedValueOnce({ data: { id: 2, is_active: true }, error: null })
+        .mockResolvedValueOnce({ data: { code: 'draft' }, error: null })
+        .mockResolvedValueOnce({ data: draftEvent, error: null })
+
+      const response = await request(app)
+        .post('/events')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          category_id: 2,
+          title: 'Borrador interno',
+          starts_at: draftEvent.starts_at,
+          end_at: draftEvent.end_at,
+          capacity: 16,
+          price: 15000,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.CREATED)
+      expect(response.body.data.end_at).toBe(draftEvent.end_at)
+      expect(eventsBuilder.inserts).toContainEqual(
+        expect.objectContaining({
+          starts_at: draftEvent.starts_at,
+          end_at: draftEvent.end_at,
+        }),
+      )
+      expect(eventsBuilder.inserts[0]).not.toHaveProperty('registration_deadline')
+    })
+
     it('rejects created_by in the body with 400 VALIDATION_FAILED', async () => {
       mockAuthenticatedAdmin()
 
@@ -202,6 +298,7 @@ describe('events', () => {
           category_id: 2,
           title: 'Open night',
           starts_at: '2026-09-20T21:00:00.000Z',
+          end_at: '2026-09-20T23:00:00.000Z',
           capacity: 16,
           price: 15000,
           created_by: ADMIN_ID,
@@ -222,7 +319,69 @@ describe('events', () => {
           category_id: 2,
           title: 'Open night',
           starts_at: '2026-09-20T21:00:00.000Z',
+          end_at: '2026-09-20T23:00:00.000Z',
           capacity: 16,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(eventsBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects missing end_at with 400 VALIDATION_FAILED', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/events')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          category_id: 2,
+          title: 'Open night',
+          starts_at: '2026-09-20T21:00:00.000Z',
+          capacity: 16,
+          price: 15000,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(eventsBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects an end_at that is not after starts_at', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.resolved = { data: { id: 2, is_active: true }, error: null }
+
+      const response = await request(app)
+        .post('/events')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          category_id: 2,
+          title: 'Open night',
+          starts_at: '2026-09-20T21:00:00.000Z',
+          end_at: '2026-09-20T21:00:00.000Z',
+          capacity: 16,
+          price: 15000,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.INVALID_EVENT_DATES)
+      expect(eventsBuilder.insert).not.toHaveBeenCalled()
+    })
+
+    it('rejects the removed registration_deadline field', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/events')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          category_id: 2,
+          title: 'Open night',
+          starts_at: '2026-09-20T21:00:00.000Z',
+          end_at: '2026-09-20T23:00:00.000Z',
+          registration_deadline: '2026-09-20T20:00:00.000Z',
+          capacity: 16,
+          price: 15000,
         })
 
       expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
@@ -232,6 +391,20 @@ describe('events', () => {
   })
 
   describe('PATCH /events/:id capacity recalc', () => {
+    it('rejects end_at before the stored starts_at', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .patch('/events/12')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ end_at: '2026-09-20T20:00:00.000Z' })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.INVALID_EVENT_DATES)
+      expect(eventsBuilder.update).not.toHaveBeenCalled()
+      expect(mockRpc).not.toHaveBeenCalled()
+    })
+
     it('returns 401 when no Bearer token is provided', async () => {
       const response = await request(app).patch('/events/12').send({ capacity: 2 })
 

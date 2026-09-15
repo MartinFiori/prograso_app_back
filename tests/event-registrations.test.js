@@ -382,7 +382,7 @@ describe('GET /events/:eventId/registrations hides has_paid', () => {
         category_id: 1,
         title: 'Open',
         starts_at: '2026-09-20T21:00:00.000Z',
-        registration_deadline: null,
+        end_at: '2026-09-20T23:00:00.000Z',
         capacity: 16,
         price: 15000,
         status_code: 'open',
@@ -473,5 +473,97 @@ describe('GET /events/:eventId/registrations/me includes has_paid', () => {
 
     expect(response.status).toBe(httpStatusCodes.OK)
     expect(response.body.data.has_paid).toBe(true)
+  })
+})
+
+describe('pair event registrations', () => {
+  const companionId = '33333333-3333-4333-8333-333333333333'
+  const pairEvent = {
+    id: 9,
+    title: 'Torneo',
+    status_code: 'open',
+    capacity: 16,
+    category: { id: 3, name: 'Torneos', participants_per_registration: 2 },
+  }
+
+  beforeEach(() => {
+    mockRpc.mockReset()
+    mockAuthenticatedUser()
+    createUserClient.mockImplementation(() => ({
+      rpc: mockRpc,
+      from: jest.fn(),
+    }))
+  })
+
+  it('registers the authenticated user with a companion and returns the companion profile', async () => {
+    const profilesBuilder = createQueryBuilder({
+      data: { id: USER_ID, role: 'user' },
+      error: null,
+    })
+    const eventBuilder = createQueryBuilder({ data: pairEvent, error: null })
+    const groupBuilder = createQueryBuilder({
+      data: [
+        { user_id: USER_ID, profile: { id: USER_ID, name: 'Yo', avatar_url: null } },
+        {
+          user_id: companionId,
+          profile: { id: companionId, name: 'Compañero', avatar_url: null },
+        },
+      ],
+      error: null,
+    })
+
+    supabaseAdmin.from.mockImplementation((table) => {
+      if (table === 'profiles') return profilesBuilder
+      if (table === 'events') return eventBuilder
+      if (table === 'event_registrations') return groupBuilder
+      return createQueryBuilder({ data: null, error: null })
+    })
+    mockRpc.mockResolvedValue({
+      data: {
+        id: 20,
+        event_id: 9,
+        user_id: USER_ID,
+        registration_group_id: 7,
+        status_code: 'confirmed',
+        waitlist_position: null,
+      },
+      error: null,
+    })
+
+    const response = await request(app)
+      .post('/events/9/registrations')
+      .set(authHeader(USER_TOKEN))
+      .send({ companion_user_id: companionId })
+
+    expect(response.status).toBe(httpStatusCodes.CREATED)
+    expect(response.body.data.companion).toEqual({
+      id: companionId,
+      name: 'Compañero',
+      avatar_url: null,
+    })
+    expect(mockRpc).toHaveBeenCalledWith('register_pair_for_event', {
+      p_event_id: 9,
+      p_companion_user_id: companionId,
+    })
+  })
+
+  it('requires a companion for a pair category', async () => {
+    const profilesBuilder = createQueryBuilder({
+      data: { id: USER_ID, role: 'user' },
+      error: null,
+    })
+    const eventBuilder = createQueryBuilder({ data: pairEvent, error: null })
+    supabaseAdmin.from.mockImplementation((table) =>
+      table === 'profiles' ? profilesBuilder : eventBuilder,
+    )
+
+    const response = await request(app)
+      .post('/events/9/registrations')
+      .set(authHeader(USER_TOKEN))
+      .send({})
+
+    expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+    expect(response.body.errorCode).toBe(errorCodes.INVALID_COMPANION)
+    expect(mockRpc).not.toHaveBeenCalled()
   })
 })

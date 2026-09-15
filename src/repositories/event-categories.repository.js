@@ -2,7 +2,8 @@ const supabaseAdmin = require('../supabase/admin')
 const mapSupabaseError = require('../utils/map-supabase-error')
 
 const TABLE = 'event_categories'
-const COLUMNS = 'id, name, description, image_url, is_active, created_at, updated_at'
+const COLUMNS =
+  'id, name, description, image_url, participants_per_registration, is_active, created_at, updated_at'
 
 async function listActive() {
   const { data, error } = await supabaseAdmin

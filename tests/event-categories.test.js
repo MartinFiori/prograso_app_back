@@ -137,6 +137,40 @@ describe('event-categories', () => {
   })
 
   describe('POST /event-categories', () => {
+    it('creates a category configured for pair registrations', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({
+          name: 'Torneos',
+          description: 'Competencia por parejas',
+          participants_per_registration: 2,
+        })
+
+      expect(response.status).toBe(httpStatusCodes.CREATED)
+      expect(categoriesBuilder.insert).toHaveBeenCalledWith({
+        name: 'Torneos',
+        description: 'Competencia por parejas',
+        participants_per_registration: 2,
+        image_url: null,
+      })
+    })
+
+    it('rejects unsupported registration sizes', async () => {
+      mockAuthenticatedAdmin()
+
+      const response = await request(app)
+        .post('/event-categories')
+        .set(authHeader(ADMIN_TOKEN))
+        .send({ name: 'Equipo grande', participants_per_registration: 3 })
+
+      expect(response.status).toBe(httpStatusCodes.BAD_REQUEST)
+      expect(response.body.errorCode).toBe(errorCodes.VALIDATION_FAILED)
+      expect(categoriesBuilder.insert).not.toHaveBeenCalled()
+    })
+
     const createPayload = {
       name: 'Canchas abiertas',
       description: 'Partidos abiertos para anotarse',

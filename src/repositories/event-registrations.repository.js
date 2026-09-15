@@ -8,7 +8,7 @@ const {
 
 const TABLE = 'event_registrations'
 const REGISTRATION_COLUMNS =
-  'id, event_id, user_id, status_code, waitlist_position, has_paid, created_at, updated_at'
+  'id, event_id, user_id, registration_group_id, status_code, waitlist_position, has_paid, created_at, updated_at'
 const PUBLIC_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url)`
 const ADMIN_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url, role)`
 const ADMIN_SEARCH_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles!inner(id, name, avatar_url, role)`
@@ -40,8 +40,19 @@ async function register(accessToken, eventId) {
   return callRpc(accessToken, 'register_for_event', { p_event_id: eventId })
 }
 
+async function registerPair(accessToken, eventId, companionUserId) {
+  return callRpc(accessToken, 'register_pair_for_event', {
+    p_event_id: eventId,
+    p_companion_user_id: companionUserId,
+  })
+}
+
 async function unregister(accessToken, eventId) {
   return callRpc(accessToken, 'unregister_from_event', { p_event_id: eventId })
+}
+
+async function unregisterPair(accessToken, eventId) {
+  return callRpc(accessToken, 'unregister_pair_from_event', { p_event_id: eventId })
 }
 
 async function adminRegister(accessToken, eventId, userId) {
@@ -123,6 +134,25 @@ async function findById(registrationId) {
   return data
 }
 
+async function adminDeletePair(accessToken, registrationId) {
+  return callRpc(accessToken, 'admin_delete_pair_registration', {
+    p_registration_id: registrationId,
+  })
+}
+
+async function findGroupCompanion(groupId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from(TABLE)
+    .select('user_id, profile:profiles(id, name, avatar_url)')
+    .eq('registration_group_id', groupId)
+
+  if (error) {
+    throw mapSupabaseError(error)
+  }
+
+  return (data ?? []).find((row) => row.user_id !== userId)?.profile ?? null
+}
+
 async function countByStatus(eventId, statusCode) {
   const { count, error } = await supabaseAdmin
     .from(TABLE)
@@ -187,13 +217,17 @@ async function getCapacityCounts(eventId) {
 
 module.exports = {
   register,
+  registerPair,
   unregister,
+  unregisterPair,
   adminRegister,
   adminSync,
   adminUpdate,
   adminDelete,
+  adminDeletePair,
   findMine,
   findById,
+  findGroupCompanion,
   listByEvent,
   getCapacityCounts,
   markPaid,

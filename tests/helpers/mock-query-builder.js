@@ -7,6 +7,7 @@ function createQueryBuilder(resolved = { data: null, error: null, count: null })
     ins: [],
     gtes: [],
     ltes: [],
+    neqs: [],
     ilikes: [],
     rangeArgs: null,
     selectArgs: null,
@@ -42,6 +43,14 @@ function createQueryBuilder(resolved = { data: null, error: null, count: null })
     }),
     lte: jest.fn((column, value) => {
       builder.ltes.push([column, value])
+      return builder
+    }),
+    neq: jest.fn((column, value) => {
+      builder.neqs.push([column, value])
+      return builder
+    }),
+    limit: jest.fn((value) => {
+      builder.limitValue = value
       return builder
     }),
     ilike: jest.fn((column, value) => {

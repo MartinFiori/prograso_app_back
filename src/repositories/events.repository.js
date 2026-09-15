@@ -1,12 +1,13 @@
 const supabaseAdmin = require('../supabase/admin')
 const { createUserClient } = require('../supabase/user-client')
 const mapSupabaseError = require('../utils/map-supabase-error')
-const { PUBLIC_STATUS_CODES } = require('../constants/event-statuses')
+const { OPEN_STATUS_CODE, PUBLIC_STATUS_CODES } = require('../constants/event-statuses')
 
 const TABLE = 'events'
-const CATEGORY_EMBED = 'category:event_categories(id, name, image_url)'
-const PUBLIC_COLUMNS = `id, category_id, title, starts_at, registration_deadline, capacity, price, status_code, ${CATEGORY_EMBED}`
-const ADMIN_COLUMNS = `id, category_id, title, starts_at, registration_deadline, capacity, price, status_code, created_by, created_at, updated_at, ${CATEGORY_EMBED}`
+const CATEGORY_EMBED =
+  'category:event_categories(id, name, image_url, participants_per_registration)'
+const PUBLIC_COLUMNS = `id, category_id, title, starts_at, end_at, capacity, price, status_code, ${CATEGORY_EMBED}`
+const ADMIN_COLUMNS = `id, category_id, title, starts_at, end_at, capacity, price, status_code, created_by, created_at, updated_at, ${CATEGORY_EMBED}`
 
 function columnsFor({ includePrivateFields }) {
   return includePrivateFields ? ADMIN_COLUMNS : PUBLIC_COLUMNS
@@ -25,7 +26,7 @@ async function list({ filters = {}, pagination, publicOnly = false, includePriva
     .range(from, to)
 
   if (publicOnly) {
-    query = query.in('status_code', [...PUBLIC_STATUS_CODES])
+    query = query.eq('status_code', OPEN_STATUS_CODE)
   }
 
   if (filters.status_code) {
