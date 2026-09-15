@@ -45,8 +45,41 @@ function toPublicRegistration(row) {
       id: profile.id ?? row.user_id,
       name: profile.name ?? '',
       avatar_url: profile.avatar_url ?? null,
+      category: profile.category ?? null,
     },
   }
+}
+
+function toPublicRegistrations(rows) {
+  const registrations = rows.map(toPublicRegistration)
+  const groupPositions = new Map()
+
+  for (const registration of registrations) {
+    if (
+      registration.status_code !== 'waitlisted' ||
+      registration.registration_group_id == null ||
+      registration.waitlist_position == null
+    ) {
+      continue
+    }
+
+    const current = groupPositions.get(registration.registration_group_id)
+    groupPositions.set(
+      registration.registration_group_id,
+      current == null
+        ? registration.waitlist_position
+        : Math.min(current, registration.waitlist_position),
+    )
+  }
+
+  return registrations.map((registration) => ({
+    ...registration,
+    waitlist_position:
+      registration.registration_group_id == null
+        ? registration.waitlist_position
+        : (groupPositions.get(registration.registration_group_id) ??
+          registration.waitlist_position),
+  }))
 }
 
 function companionError(errorCode, description) {
@@ -164,7 +197,7 @@ async function listPublic(eventId, query) {
   })
 
   return {
-    data: result.data.map(toPublicRegistration),
+    data: toPublicRegistrations(result.data),
     pagination: buildPagination(pagination.page, pagination.limit, result.total),
   }
 }

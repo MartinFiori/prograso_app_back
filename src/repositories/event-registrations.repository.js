@@ -9,7 +9,7 @@ const {
 const TABLE = 'event_registrations'
 const REGISTRATION_COLUMNS =
   'id, event_id, user_id, registration_group_id, status_code, waitlist_position, has_paid, created_at, updated_at'
-const PUBLIC_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url)`
+const PUBLIC_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url, category)`
 const ADMIN_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles(id, name, avatar_url, role)`
 const ADMIN_SEARCH_COLUMNS = `${REGISTRATION_COLUMNS}, profile:profiles!inner(id, name, avatar_url, role)`
 

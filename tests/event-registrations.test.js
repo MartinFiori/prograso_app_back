@@ -375,7 +375,7 @@ describe('PATCH /events/:eventId/registrations/:userId/paid', () => {
 })
 
 describe('GET /events/:eventId/registrations hides has_paid', () => {
-  it('strips has_paid from the public roster', async () => {
+  it('returns public profile category and one waitlist position per group', async () => {
     const eventBuilder = createQueryBuilder({
       data: {
         id: 4,
@@ -398,16 +398,29 @@ describe('GET /events/:eventId/registrations hides has_paid', () => {
           id: 12,
           event_id: 4,
           user_id: USER_A,
-          status_code: 'confirmed',
-          waitlist_position: null,
+          registration_group_id: 7,
+          status_code: 'waitlisted',
+          waitlist_position: 1,
           has_paid: true,
           created_at: '2026-09-04T18:00:00.000Z',
           updated_at: '2026-09-04T18:00:00.000Z',
-          profile: { id: USER_A, name: 'Ana', avatar_url: null },
+          profile: { id: USER_A, name: 'Ana', avatar_url: null, category: '7ma' },
+        },
+        {
+          id: 13,
+          event_id: 4,
+          user_id: USER_B,
+          registration_group_id: 7,
+          status_code: 'waitlisted',
+          waitlist_position: 2,
+          has_paid: false,
+          created_at: '2026-09-04T18:00:00.000Z',
+          updated_at: '2026-09-04T18:00:00.000Z',
+          profile: { id: USER_B, name: 'Beto', avatar_url: null, category: '6ta' },
         },
       ],
       error: null,
-      count: 1,
+      count: 2,
     })
 
     supabaseAdmin.from.mockImplementation((table) => {
@@ -425,6 +438,12 @@ describe('GET /events/:eventId/registrations hides has_paid', () => {
     expect(response.status).toBe(httpStatusCodes.OK)
     expect(response.body.data[0].has_paid).toBeUndefined()
     expect(response.body.data[0].user_id).toBe(USER_A)
+    expect(response.body.data[0].profile.category).toBe('7ma')
+    expect(response.body.data.map((registration) => registration.waitlist_position)).toEqual([
+      1,
+      1,
+    ])
+    expect(registrationsBuilder.selectArgs[0]).toContain('category')
   })
 })
 
