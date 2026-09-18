@@ -2,12 +2,14 @@ const supabaseAdmin = require('../supabase/admin')
 const { createUserClient } = require('../supabase/user-client')
 const mapSupabaseError = require('../utils/map-supabase-error')
 const { OPEN_STATUS_CODE, PUBLIC_STATUS_CODES } = require('../constants/event-statuses')
+const { PATCHABLE_STATUS_CODES } = require('../constants/registration-statuses')
 
 const TABLE = 'events'
 const CATEGORY_EMBED =
   'category:event_categories(id, name, image_url, participants_per_registration)'
 const PUBLIC_COLUMNS = `id, category_id, title, starts_at, end_at, capacity, price, status_code, ${CATEGORY_EMBED}`
 const ADMIN_COLUMNS = `id, category_id, title, starts_at, end_at, capacity, price, status_code, created_by, created_at, updated_at, ${CATEGORY_EMBED}`
+const ADMIN_LIST_COLUMNS = `${ADMIN_COLUMNS}, event_registrations(count)`
 
 function columnsFor({ includePrivateFields }) {
   return includePrivateFields ? ADMIN_COLUMNS : PUBLIC_COLUMNS
@@ -21,9 +23,13 @@ async function list({ filters = {}, pagination, publicOnly = false, includePriva
 
   let query = supabaseAdmin
     .from(TABLE)
-    .select(columnsFor({ includePrivateFields }), { count: 'exact' })
+    .select(includePrivateFields ? ADMIN_LIST_COLUMNS : PUBLIC_COLUMNS, { count: 'exact' })
     .order('starts_at', { ascending: true })
     .range(from, to)
+
+  if (includePrivateFields) {
+    query = query.in('event_registrations.status_code', PATCHABLE_STATUS_CODES)
+  }
 
   if (publicOnly) {
     query = query.eq('status_code', OPEN_STATUS_CODE)
@@ -52,7 +58,12 @@ async function list({ filters = {}, pagination, publicOnly = false, includePriva
   }
 
   return {
-    data: data ?? [],
+    data: includePrivateFields
+      ? (data ?? []).map(({ event_registrations: registrations, ...event }) => ({
+          ...event,
+          registered_count: registrations?.[0]?.count ?? 0,
+        }))
+      : (data ?? []),
     total: count ?? 0,
   }
 }

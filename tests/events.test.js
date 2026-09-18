@@ -133,6 +133,35 @@ describe('events', () => {
   })
 
   describe('GET /admin/events', () => {
+    it('returns one active registration aggregate without an N+1 query', async () => {
+      mockAuthenticatedAdmin()
+      eventsBuilder.resolved = {
+        data: [
+          {
+            ...draftEvent,
+            event_registrations: [{ count: 2 }],
+          },
+        ],
+        error: null,
+        count: 1,
+      }
+
+      const response = await request(app).get('/admin/events').set(authHeader(ADMIN_TOKEN))
+
+      expect(response.status).toBe(httpStatusCodes.OK)
+      expect(response.body.data[0].registered_count).toBe(2)
+      expect(response.body.data[0].event_registrations).toBeUndefined()
+      expect(eventsBuilder.selectArgs[0]).toContain('event_registrations(count)')
+      expect(eventsBuilder.ins).toContainEqual([
+        'event_registrations.status_code',
+        ['confirmed', 'waitlisted'],
+      ])
+      expect(supabaseAdmin.from.mock.calls.filter(([table]) => table === 'events')).toHaveLength(1)
+      expect(
+        supabaseAdmin.from.mock.calls.filter(([table]) => table === 'event_registrations'),
+      ).toHaveLength(0)
+    })
+
     it('returns events from every status without adding a status filter', async () => {
       mockAuthenticatedAdmin()
       eventsBuilder.resolved = {

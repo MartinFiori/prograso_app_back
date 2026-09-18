@@ -444,6 +444,10 @@ describe('GET /events/:eventId/registrations hides has_paid', () => {
       1,
     ])
     expect(registrationsBuilder.selectArgs[0]).toContain('category')
+    expect(registrationsBuilder.order).toHaveBeenNthCalledWith(1, 'created_at', {
+      ascending: true,
+    })
+    expect(registrationsBuilder.order).toHaveBeenNthCalledWith(2, 'id', { ascending: true })
   })
 })
 

@@ -183,6 +183,7 @@ async function listByEvent({ eventId, filters = {}, pagination, publicProfile = 
     .select(columns, { count: 'exact' })
     .eq('event_id', eventId)
     .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
     .range(from, to)
 
   if (filters.status_code) {
